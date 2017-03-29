@@ -25,10 +25,13 @@
 #include <RF24.h>
 #include <RF24_config.h>
 #include <SPI.h>
+#include <TFT_ST7735.h>
+#include <buffer.h>          //VESC
+#include <crc.h>             //VESC
+#include <datatypes.h>       //VESC
+#include <local_datatypes.h> //VESC
 #include <nRF24L01.h>
 #include <printf.h>
-
-#include <TFT_ST7735.h>
 
 #define PIN_RADIO_CS 7
 #define PIN_RADIO_CE 8
@@ -36,30 +39,39 @@
 #define PIN
 
 const uint8_t channel = 77;
-const uint64_t pipe_TXtoRX = 0x52582d5458; // 'RX-TX' pipe
+const uint64_t pipe = 0x52582d5458; // 'RX-TX' pipe
 
 struct point { // ToDo: Outsource
   uint8_t X;
   uint8_t Y;
-}
+};
 
 struct point battery = {82, 54};
+struct bldcMeasure VescMeasuredValues;
+
+struct RemoteDataStruct {
+  int8_t thr;
+  bool cruise;
+} RemoteData;
 
 // Set up nRF24L01 radio on SPI bus
 RF24 radio(PIN_RADIO_CS, PIN_RADIO_CE);
 
-struct bldcMeasure VescMeasuredValues;
+// Invoke library, pins defined in User_Setup.h
+TFT_ST7735 tft = TFT_ST7735();
+
+// functions
+void DrawBattery(uint16_t color);
+void FillBattery(uint8_t value);
 
 void setup() {
   Serial.begin(115200);
 
-  pinMode()
-
-      TFT_ST7735 tft = TFT_ST7735(); // Invoke library, pins defined in User_Setup.h
   tft.init();
   tft.setRotation(0); // portrait
   tft.fillScreen(TFT_BLACK);
-  tft.setTextColor(TFT_WHITE, TFT_BLACK) DrawBattery(TFT_WHITE);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  DrawBattery(TFT_WHITE);
   FillBattery(0);
 
   // Setup and configure rf radio
@@ -72,7 +84,7 @@ void setup() {
   radio.setRetries(1, 15);         // delay (n-1)x250µs // #retries max 15
   radio.setCRCLength(RF24_CRC_16); // Use 16-bit CRC for safety
 
-  radio.openWritingPipe(pipe_RXtoTX);
+  radio.openWritingPipe(pipe);
 
   radio.startListening(); // Start listening
   radio.printDetails();   // Dump the configuration for debugging
@@ -85,12 +97,12 @@ void loop() {
   // read Button
 
   // send values to RX
-  sendOK = radio.write(&remPack, sizeof(remPack));
+  bool sendOK = radio.write(&RemoteData, sizeof(RemoteData));
 
   // recieve AckPayload
   while (radio.isAckPayloadAvailable()) {
     radio.read(&VescMeasuredValues, sizeof(VescMeasuredValues));
-    recOK = true;
+    bool recOK = true;
   }
 
   // Write Readings and AckPayload into a Logfile on the SD
@@ -100,6 +112,17 @@ void loop() {
   // Write Average-Values to screen (if changed)
 
   // Set LED Status (if changed)
+}
+
+// Return is an RGB value.
+uint16_t GradientRYG(uint8_t value) {
+  // From green to yellow G stays at 0xFF and R goes from 0x00 to 0xFF
+  // Everything over yellow has R = 0xFF
+  if (value < 128) {
+    return 0xF800 + ((value * 2) << 3);
+  } else {
+    return 0x7E0 + (((255 - value) >> 2) << 11);
+  }
 }
 
 // ToDo: Comp: multiple DrawFastLine next to each other or FillRect
@@ -141,16 +164,5 @@ void FillBattery(uint8_t value) {
     tft.drawLine(battery.X + 44, battery.Y + 36, battery.X + 10, battery.Y + 76, TFT_RED); // other diagonal
     tft.drawLine(battery.X + 43, battery.Y + 37, battery.X + 9, battery.Y + 77, TFT_RED);
     tft.drawLine(battery.X + 45, battery.Y + 35, battery.X + 11, battery.Y + 75, TFT_RED);
-  }
-}
-
-// Return is an RGB value.
-uint16_t GradientRYG(uint8_t value) {
-  // From green to yellow G stays at 0xFF and R goes from 0x00 to 0xFF
-  // Everything over yellow has R = 0xFF
-  if (value < 128) {
-    return 0xF800 + ((value * 2) << 3);
-  } else {
-    return 0x7E0 + (((255 - value) >> 2) << 11);
   }
 }
