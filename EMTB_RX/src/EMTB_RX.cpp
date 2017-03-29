@@ -1,7 +1,6 @@
 #include <Arduino.h>
-#include <RF24.h>
+#include <RF24.h> //<SPI.h> included
 #include <RF24_config.h>
-#include <SPI.h>
 #include <VescUart.h>        //VESC
 #include <buffer.h>          //VESC
 #include <crc.h>             //VESC
@@ -14,9 +13,9 @@ const uint8_t channel = 77;
 const uint64_t pipe = 0x52582d5458; // 'RX-TX' pipe
 const uint16_t looptime = 20000;    // [µs] 20ms = 50Hz
 const uint8_t timeout = 100;        // [ms]
-const uint8_t deadband = 2;
-const float amp_fwd = 20;
-const float amp_break = 5;
+const uint8_t deadband = 255;       // no throttle can be given, only when overwritten bei the Remote data
+const uint8_t amp_fwd = 0;          // Turn off output
+const uint8_t amp_break = 0;        // Turn off output
 // ToDo: Read Values form EEPROM
 // ToDo: MenuMode from TX at Startup (Cruis + Full Breaks)
 // ToDo: Safety: Start Writing to VESC only after Throttle was centered.
@@ -26,6 +25,9 @@ uint32_t timeLastRemote;
 struct RemoteDataStruct {
   int8_t thr;
   bool cruise;
+  uint8_t deadband;
+  uint8_t _amp_fwd;
+  uint8_t _amp_break;
 } RemoteData;
 
 struct bldcMeasure VescMeasuredValues;
@@ -61,7 +63,7 @@ void setup() {
   radio.enableDynamicPayloads(); // enabled for 'enableAckPayload()
   radio.enableAckPayload();
 
-  radio.setRetries(1, 15);         // delay (n-1)x250µs // #retries max 15
+  radio.setRetries(1, 15);         // delay (n-1)x250µs // # retries max 15
   radio.setCRCLength(RF24_CRC_16); // Use 16-bit CRC for safety
 
   radio.openReadingPipe(1, pipe);
@@ -81,13 +83,18 @@ bool ReadWIFIData() {
 }
 
 void loop() {
+  bool gotMsg;
   // Get values from VESC
-  if (!VescUartGetValue(VescMeasuredValues)) {
-    // ToDo: failed to load event
+  if (VescUartGetValue(VescMeasuredValues)) {
+    gotMsg = true;
+  } else {
+    gotMsg = false;
   }
 
   // Fill FIFO with AckPayload, for next return
-  radio.writeAckPayload(pipe, &VescMeasuredValues, sizeof(VescMeasuredValues));
+  if (gotMsg) {
+    radio.writeAckPayload(pipe, &VescMeasuredValues, sizeof(VescMeasuredValues));
+  }
 
   // Read Data from TX
   if (!ReadWIFIData()) {
@@ -99,10 +106,9 @@ void loop() {
   }
 
   // Set VESC values
-  // ToDo: Float Casts
   if (RemoteData.thr > deadband) {
     VescUartSetCurrent(RemoteData.thr * amp_fwd / 127.0);
-  } else if (RemoteData.thr < deadband) {
+  } else if (RemoteData.thr < -deadband) {
     VescUartSetCurrentBrake((RemoteData.thr + 127.0) * amp_break / (127.0 - amp_break));
   } else {
     VescUartSetCurrent(0);
@@ -114,10 +120,4 @@ void loop() {
   unsigned long started_waiting_at = micros();
   while (micros() - started_waiting_at < looptime)
     ;
-}
-
-// State in case of Error
-void state_ERR() {
-  while (1) {
-  }
 }
