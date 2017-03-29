@@ -1,0 +1,6 @@
+.pioenvs
+.piolibdeps
+.clang_complete
+.clang-format
+.gcc-flags.json
+.json
