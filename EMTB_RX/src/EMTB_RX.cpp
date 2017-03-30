@@ -25,7 +25,7 @@ uint32_t timeLastRemote;
 struct RemoteDataStruct {
   int8_t thr;
   bool cruise;
-  uint8_t deadband;
+  uint8_t _deadband;
   uint8_t _amp_fwd;
   uint8_t _amp_break;
 } RemoteData;
@@ -33,17 +33,17 @@ struct RemoteDataStruct {
 struct bldcMeasure VescMeasuredValues;
 /*
 struct bldcMeasure {
-        // 7 Values int16_t not read(14 byte)
-        float avgMotorCurrent;
-        float avgInputCurrent;
-        float dutyCycleNow;
-        long rpm;
-        float inpVoltage;
-        float ampHours;
-        float ampHoursCharged;
-        // 2 values int32_t not read (8 byte)
-        long tachometer;
-        long tachometerAbs;
+	// 7 Values int16_t not read(14 byte)
+	float avgMotorCurrent;
+	float avgInputCurrent;
+	float dutyCycleNow;
+	long rpm;
+	float inpVoltage;
+	float ampHours;
+	float ampHoursCharged;
+	// 2 values int32_t not read (8 byte)
+	long tachometer;
+	long tachometerAbs;
 }
 */
 
@@ -73,31 +73,20 @@ void setup() {
   radio.powerUp();        // Leave low-power mode - making radio more responsive. // powerDown() for low-power
 }
 
-bool ReadWIFIData() {
-  while (radio.available()) { // Read everything
-    radio.read(&RemoteData, sizeof(RemoteData));
-    timeLastRemote = millis();
-    return true;
-  }
-  return false;
-}
-
 void loop() {
   bool gotMsg;
   // Get values from VESC
-  if (VescUartGetValue(VescMeasuredValues)) {
-    gotMsg = true;
-  } else {
-    gotMsg = false;
-  }
-
   // Fill FIFO with AckPayload, for next return
-  if (gotMsg) {
+  if (VescUartGetValue(VescMeasuredValues) && radio.available()) {
     radio.writeAckPayload(pipe, &VescMeasuredValues, sizeof(VescMeasuredValues));
   }
-
+	
   // Read Data from TX
-  if (!ReadWIFIData()) {
+	while (radio.available()) { // Read everything
+		gotMsg = radio.read(&RemoteData, sizeof(RemoteData));
+		timeLastRemote = millis();
+	}
+  if (!gotMsg) {
     // If no data fetched and timeout reached set values to center/default.
     if ((millis() - timeLastRemote) > timeout) {
       RemoteData.thr = 0;
