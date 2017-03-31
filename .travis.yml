@@ -10,9 +10,15 @@ cache:
 
 env:
     - PLATFORMIO_CI_SRC=EMTB_RX/src
-
+    - PLATFORMIO_CI_SRC=libraries
+    
 install:
     - pip install -U platformio
 
 script:
     - platformio ci --board=pro8MHzatmega328
+
+notifications:
+  email:
+    on_success: never
+    on_failure: never
