@@ -42,8 +42,8 @@
 				VESC TX <-- RX		GND --> Step-Down GND
 										RST		RST 
 										GND		VCC --> Step-Down +3.3V
-													A5 --> Poti(Throttle)
-	Button Cruise <-- 2			A3
+													A5 
+	Button Cruise <-- 2			A3 --> Poti(Throttle)
 													A4
 Button Settings <-- 3			A2
 		CE nRF24L01 <-- 4			A1
@@ -65,7 +65,9 @@ Button Settings <-- 3			A2
 #define PIN_TFT_RESET 8
 #define PIN_TFT_A0 9
 #define PIN_TFT_LED 10
-#define PIN_POTI A5
+#define PIN_POTI_THR A3
+#define PIN_POTI_FWD A2
+#define PIN_POTI_BREAK A1
 
 //constants
 const uint8_t channel = 77;
@@ -76,9 +78,7 @@ const uint8_t eeDeadband = 0;
 const uint8_t eeFwd = 1;
 const uint8_t eeBreak = 2;
 const uint16_t TFTrefresh = 500; // [ms]
-uint32_t TFTlastPaint;
 const uint16_t SDrefresh = 500; // [ms]
-uint32_t SDlastPrint;
 const uint8_t wheelsize = 200 // [mm]
 const uint8_t gearratio = 3 // [1:X]
 const uint8_t pulse_rpm = 42 // Number of poles * 3
@@ -86,11 +86,24 @@ const uint8_t erpm_rpm = 7 // Number of polse / 2
 const float dist_corr_factor = 0.8 // Number of polse / 2
 const float ratio_RpmSpeed = (wheelsize * 3.141 * 60) / (erpm_rpm * gearratio * 1000000);  //ERPM to km/h
 const float ratio_TachoDist = ((wheelsize * 3.141) / (pulse_rpm * gearratio * 1000000)) * dist_corr_factor; //pulses to km
+const uint16_t waitBeforeSend = 5000; //[ms]
+
+//globals
+uint32_t TFTlastPaint;
+uint32_t SDlastPrint;
 uint32_t SetPushTime;
 uint32_t ridetime;
 bool SendEnabled;
 bool hasSDcard;
-const uint16_t waitBeforeSend = 5000; //[ms]
+uint8_t amp_fwd_max;
+uint8_t amp_break_max;
+
+// average
+uint16_t avgSum = 0; 
+uint8_t avgCnt = 10; 
+uint8_t avg[avgCnt];
+uint8_t avgIdx = 0;
+
 File logfile;
 
 //Structs // ToDo: Outsource
@@ -121,8 +134,8 @@ struct RemoteDataStruct {
   int8_t thr;
   bool cruise;
   uint8_t _deadband;
-  uint8_t _amp_fwd;
-  uint8_t _amp_break;
+  uint8_t _amp_fwd; // AMPS = _amp_fwd / 2 // MAX = 127A // LSB = 0.5A
+  uint8_t _amp_break; // AMPS = _amp_break / 5 // MAX = 51A // LSB = 0.2A
 } RemoteData;
 
 // functions
@@ -134,23 +147,19 @@ RF24 radio(PIN_RADIO_CS, PIN_RADIO_CE); // Set up nRF24L01 radio on SPI bus
 TFT_ST7735 tft = TFT_ST7735();// pins defined in User_Setup.h // ToDo: Move pin definition to this file
 Bounce DEB_cruise = Bounce(); 
 
-// average
-uint16_t avgSum = 0; 
-uint8_t avgCnt = 10; 
-uint8_t avg[avgCnt];
-uint8_t avgIdx = 0;
-
 void setup() {
 	
 	pinMode(PIN_BTN_CRUISE, INPUT_PULLUP);
 	pinMode(PIN_BTN_SETTINGS, INPUT_PULLUP);
-	pinMode(PIN_POTI, INPUT_PULLUP);
+	pinMode(PIN_POTI_THR, INPUT_PULLUP);
+	pinMode(PIN_POTI_FWD, INPUT_PULLUP);
+	pinMode(PIN_POTI_BREAK, INPUT_PULLUP);
 	
 	DEB_cruise.attach(PIN_BTN_CRUISE); // standard-interval 10 ms
 	
 	EEPROM.get(eeDeadband, RemoteData._deadband);
-	EEPROM.get(eeFwd, RemoteData._amp_fwd);
-	EEPROM.get(eeBreak, RemoteData._amp_break);
+	EEPROM.get(eeFwd, amp_fwd_max);
+	EEPROM.get(eeBreak, amp_break_max);
 	
 	tft.init();
   tft.setRotation(0); // portrait
@@ -159,11 +168,11 @@ void setup() {
   tft.drawCentreString("START", 64, 40, 4);
 	
 	// Check if the button is pressed at startup.
-	// Holding it down longer then "time_settings" will enter the drawSettingsMenu and abort startup
+	// Holding it down longer then "time_settings" will enter the SettingsMenu and abort startup
 	while (digitalRead(PIN_BTN_SETTINGS)){
 		tft.setTextColor(TFT_YELLOW, TFT_BLACK);
 		tft.drawCentreString("Settings...", 64, 40, 2);
-		if (millis() > time_settings){drawSettingsMenu();}
+		if (millis() > time_settings){SettingsMenu();}
 	}
 	tft.setTextColor(TFT_WHITE, TFT_BLACK);
 	tft.drawCentreString("Connecting", 64, 40, 2);
@@ -224,14 +233,20 @@ Abort:
 }
 
 void loop() {
-  // read Poti
-	avg[avgIdx] = analogRead(PIN_POTI);
+  // read POTI_THR and build average (we don't want a spiking throttle)
+	avg[avgIdx] = analogRead(PIN_POTI_THR);
 	avgSum -= avg[avgIdx];
 	avg[avgIdx] = value;
 	avgSum += avg[avgIdx];
 	avgIdx++;
 	if (avgIdx == avgCnt) avgIdx = 0;
 	RemoteData.thr = avgSum / avgCnt;
+	
+	// read POTI_FWD and POTI_BREAK and map them between 0 and amp_fwd / 0 and amp_break
+	// analogRead = 0-1023 // >> 3 = 0-127 // MAX(amp_fwd_max)=255 // MAX(result)=32385 // >> 7 = 253
+	RemoteData._amp_fwd = ((analogRead(PIN_POTI_FWD) >> 3) * amp_fwd_max) >> 7;
+	RemoteData._amp_break = ((analogRead(PIN_POTI_BREAK) >> 3) * amp_break_max) >> 7;
+	// ToDo: Test against map()
 	
 	//readButtons
 	DEB_cruise.update();
@@ -368,26 +383,58 @@ void FillBattery(uint8_t value) {
 }
 
 //Enter Settings Mode. Exit only over reset.
-void drawSettingsMenu(){
+void SettingsMenu(){
 	drawSettings();
 	drawSettingValues();
-	uint8_t currentSetting = 0; // 0=save // 1=deadband // 2=amp_fwd // 3=amp_break
+	int8_t currentSetting = 0; // 0=save // 1=deadband // 2=amp_fwd // 3=amp_break
 	bool ok;
-	bool trigger;
+	bool triggerStick;
 	uint16_t stick;
 	while(1){
-		ok = digitalRead(PIN_BTN_CRUISE);
-		stick = analogRead(PIN_POTI);
-		//some movement has to me done to trigger
-		if (stick > 712 && !trigger){ //mid 512
-			currentSetting++;
-			trigger = true;
-		} else if (stick < 312 && !trigger) {
-			currentSetting--;
-			trigger = true;
-		} else if (stick < 612 && stick > 412 && trigger){ //100 difference so it won't jitter
-			trigger = false;
+		DEB_cruise.update();
+		ok = DEB_cruise.read();
+		stick = analogRead(PIN_POTI_THR);
+		// some movement has to be done to triggerStick
+		// when button is pressed and stick moved change value.
+		// without button change menu
+		if (stick > 712 && !triggerStick ){ //mid 512
+			if (ok) {
+				ChangeSettings(true, currentSetting);
+			} else {
+				currentSetting++;
+				triggerStick = true;
+			}
+		} else if (stick < 312 && !triggerStick) {
+			if (ok) {
+				ChangeSettings(false, currentSetting);
+			} else {
+				currentSetting--;
+				triggerStick = true;
+			}
+		} else if (stick < 612 && stick > 412 && triggerStick){ //100 difference so it won't jitter
+			if (ok) ChangeSettings(false, currentSetting);
+			triggerStick = false;
 		}
+		if (currentSetting > 3) currentSetting = 3;
+		if (currentSetting < 0) currentSetting = 0;
+		drawSettingValues(currentSetting);
+	}
+}
+
+void ChangeSettings(bool up, uint16_t currentS){
+	switch (currentS){
+		case 0: 
+			SaveSettings();
+			break;
+		case 1: 
+			up ? RemoteData._deadband++ : RemoteData._deadband--;
+			break;
+		case 2: 
+			up ? amp_fwd_max++ : amp_fwd_max--;
+			break;
+		case 3: 
+			up ? amp_break_max++ : amp_break_max--;
+			break;
 	}
 }
 
@@ -410,15 +457,15 @@ void drawSettingValues(uint16_t currentS){
 	tft.setTextColor(RemoteData._deadband == EEPROM.get(eeDeadband, RemoteData._deadband) ? TFT_GREEN : TFT_RED, currentS == 1 ? TFT_WHITE : TFT_BLACK);
 	tft.drawNumber(RemoteData._deadband, 80, 30, 2);
 	
-	tft.setTextColor(RemoteData._amp_fwd == EEPROM.get(eeFwd, RemoteData._amp_fwd) ? TFT_GREEN : TFT_RED, currentS == 2 ? TFT_WHITE : TFT_BLACK);
-	tft.drawNumber(RemoteData._amp_fwd, 80, 50, 2);
+	tft.setTextColor(amp_fwd_max == EEPROM.get(eeFwd, amp_fwd_max) ? TFT_GREEN : TFT_RED, currentS == 2 ? TFT_WHITE : TFT_BLACK);
+	tft.drawNumber(amp_fwd_max, 80, 50, 2);
 	
-	tft.setTextColor(RemoteData._amp_break == EEPROM.get(eeBreak, RemoteData._amp_break) ? TFT_GREEN : TFT_RED, currentS == 3 ? TFT_WHITE : TFT_BLACK);
-	tft.drawNumber(RemoteData._amp_break, 80, 70, 2);
+	tft.setTextColor(amp_break_max == EEPROM.get(eeBreak, amp_break_max) ? TFT_GREEN : TFT_RED, currentS == 3 ? TFT_WHITE : TFT_BLACK);
+	tft.drawNumber(amp_break_max, 80, 70, 2);
 }
 
 void SaveSettings(){
 	EEPROM.update(eeDeadband, RemoteData._deadband);
-	EEPROM.update(eeFwd, RemoteData._amp_fwd);
-	EEPROM.update(eeBreak, RemoteData._amp_break);
+	EEPROM.update(eeFwd, amp_fwd_max);
+	EEPROM.update(eeBreak, amp_break_max);
 }

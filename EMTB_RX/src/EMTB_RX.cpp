@@ -26,8 +26,8 @@ struct RemoteDataStruct {
   int8_t thr;
   bool cruise;
   uint8_t _deadband;
-  uint8_t _amp_fwd;
-  uint8_t _amp_break;
+  uint8_t _amp_fwd; // value = _amp_fwd / 2
+  uint8_t _amp_break; // value = _amp_break / 5
 } RemoteData;
 
 struct bldcMeasure VescMeasuredValues;
@@ -96,9 +96,9 @@ void loop() {
 
   // Set VESC values
   if (RemoteData.thr > deadband) {
-    VescUartSetCurrent(RemoteData.thr * amp_fwd / 127.0);
+    VescUartSetCurrent(RemoteData.thr * (amp_fwd / 2.0) / 127.0);
   } else if (RemoteData.thr < -deadband) {
-    VescUartSetCurrentBrake((RemoteData.thr + 127.0) * amp_break / (127.0 - amp_break));
+    VescUartSetCurrentBrake((RemoteData.thr + 127.0) * (amp_break / 5.0) / (127.0 - amp_break));
   } else {
     VescUartSetCurrent(0);
     VescUartSetCurrentBrake(0);
