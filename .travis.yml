@@ -15,10 +15,8 @@ install:
     - pip install -U platformio
     - wget https://github.com/DiegoTheWolf/EMTB/archive/DEV_Online.zip -O /tmp/mylib.zip
     - unzip /tmp/mylib.zip -d /tmp
-    - rm -rf /tmp/EMTB_RX
-    - rm -rf /tmp/EMTB_TX
-    - cd /tmp/libraries/
-    - mv * ../
+#    - cd /tmp/EMTB-DEV_Online/libraries/
+    - mv /tmp/EMTB-DEV_Online/libraries/* ../../
 
 script:
     - platformio ci --board=pro8MHzatmega328
