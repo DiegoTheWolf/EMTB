@@ -17,7 +17,7 @@ install:
     - unzip /tmp/mylib.zip -d /tmp
     - rm -rf /tmp/EMTB_RX
     - rm -rf /tmp/EMTB_TX
-    - mv tmp/libraries/* ../
+    - mv /tmp/libraries/* ../
 
 script:
     - platformio ci --board=pro8MHzatmega328
