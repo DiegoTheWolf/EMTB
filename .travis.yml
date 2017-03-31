@@ -12,6 +12,7 @@ install:
     - pip install -U platformio
     
 script:
+    - platformio lib install
     - platformio run -d /home/travis/build/DiegoTheWolf/EMTB/EMTB_RX
 
 notifications:
