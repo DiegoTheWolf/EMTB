@@ -8,14 +8,11 @@ cache:
     directories:
         - "~/.platformio"
 
-env:
-    - PLATFORMIO_CI_SRC=EMTB_RX/src
-    
 install:
     - pip install -U platformio
     
 script:
-    - platformio run
+    - platformio run -d /home/travis/build/DiegoTheWolf/EMTB/EMTB_RX
 
 notifications:
   email:
