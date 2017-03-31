@@ -13,6 +13,8 @@ install:
     
 script:
     - platformio lib install
+    - cd /home/travis/build/DiegoTheWolf/EMTB
+    - ls 
     - platformio run -d /home/travis/build/DiegoTheWolf/EMTB/EMTB_RX
 
 notifications:
