@@ -15,12 +15,10 @@ install:
     - pip install -U platformio
     - wget https://github.com/DiegoTheWolf/EMTB/archive/DEV_Online.zip -O /tmp/mylib.zip
     - unzip /tmp/mylib.zip -d /tmp
-    - wget https://github.com/arduino/Arduino/archive/master.zip -O /tmp/ard.zip
-    - unzip /tmp/ard.zip -d /tmp
 
 script:
-    - platformio ci --lib="/tmp/Arduino-master/hardware/arduino/avr/cores/arduino/arduino.h" --lib="/tmp/EMTB-DEV_Online/libraries/RF24" --lib="/tmp/EMTB-DEV_Online/libraries/Bounce2" --lib="/tmp/EMTB-DEV_Online/libraries/TFT_ST7735" --lib="/tmp/EMTB-DEV_Online/libraries/VescUartControl" --board=pro8MHzatmega328
-
+    - platformio ci --lib="libraries/RF24" --lib="/tmp/EMTB-DEV_Online/libraries/Bounce2" --lib="/tmp/EMTB-DEV_Online/libraries/TFT_ST7735" --lib="/tmp/EMTB-DEV_Online/libraries/VescUartControl" --board=pro8MHzatmega328
+#--lib="/tmp/EMTB-DEV_Online/libraries/RF24"
 notifications:
   email:
     on_success: never
