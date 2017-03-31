@@ -15,6 +15,10 @@ install:
     - pip install -U platformio
     - wget https://github.com/DiegoTheWolf/EMTB/archive/DEV_Online.zip -O /tmp/mylib.zip
     - unzip /tmp/mylib.zip -d /tmp
+    - wget https://github.com/jcw/jeelib/archive/master.zip -O /tmp/jeelib.zip
+    - unzip /tmp/jeelib.zip -d /tmp
+    - cd /tmp
+    - ls
 #    - cd /tmp/EMTB-DEV_Online/libraries/
     - mv /tmp/EMTB-DEV_Online/libraries/* ../../
 
