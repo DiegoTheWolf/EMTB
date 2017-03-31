@@ -16,7 +16,7 @@ install:
     - wget https://github.com/DiegoTheWolf/EMTB/archive/DEV_Online.zip -O /tmp/mylib.zip
     - unzip /tmp/mylib.zip -d /tmp
     - wget https://github.com/arduino/Arduino/archive/master.zip -O /tmp/ard.zip
-    - unzip /tmp/mylib.zip -d /tmp
+    - unzip /tmp/ard.zip -d /tmp
 
 script:
     - platformio ci --lib="Arduino-master/hardware/arduino/avr/cores/arduino/" --lib="/tmp/EMTB-DEV_Online/libraries/RF24" --lib="/tmp/EMTB-DEV_Online/libraries/Bounce2" --lib="/tmp/EMTB-DEV_Online/libraries/TFT_ST7735" --lib="/tmp/EMTB-DEV_Online/libraries/VescUartControl" --board=pro8MHzatmega328
