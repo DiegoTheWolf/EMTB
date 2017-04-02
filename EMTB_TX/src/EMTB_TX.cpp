@@ -71,12 +71,15 @@ Button Settings <-- 3			A2
 
 // constants
 const uint8_t channel = 77;
-const uint64_t pipe = 0x52582d5458;  // 'RX-TX' pipe
-const uint32_t time_settings = 4000; // [ms]
-const uint32_t SdAbortOk = 4000;     // [ms]
-const uint8_t eeDeadband = 0;
-const uint8_t eeFwd = 1;
-const uint8_t eeBreak = 2;
+const uint64_t pipe = 0x52582d5458;                                                                         // 'RX-TX' pipe
+const uint32_t time_settings = 4000;                                                                        // [ms]
+const uint32_t SdAbortOk = 4000;                                                                            // [ms]
+const uint8_t eeDeadband = 0;                                                                               // EEPROM Address
+const uint8_t eeFwdMax = 1;                                                                                 // EEPROM Address
+const uint8_t eeBreakMax = 2;                                                                               // EEPROM Address
+const uint8_t eeFwdMin = 3;                                                                                 // EEPROM Address
+const uint8_t eeBreakMin = 4;                                                                               // EEPROM Address
+const uint8_t eeCellcount = 5;                                                                              // EEPROM Address
 const uint16_t TFTrefresh = 500;                                                                            // [ms]
 const uint16_t SDrefresh = 500;                                                                             // [ms]
 const uint8_t wheelsize = 200;                                                                              // [mm]
@@ -97,6 +100,9 @@ bool SendEnabled;
 bool hasSDcard;
 uint8_t amp_fwd_max;
 uint8_t amp_break_max;
+uint8_t amp_fwd_min;
+uint8_t amp_break_min;
+uint8_t cellcount;
 
 // average
 uint16_t avgSum = 0;
@@ -134,8 +140,10 @@ struct RemoteDataStruct {
   int8_t thr;
   bool cruise;
   uint8_t _deadband;
-  uint8_t _amp_fwd;   // AMPS = _amp_fwd / 2 // MAX = 127A // LSB = 0.5A
-  uint8_t _amp_break; // AMPS = _amp_break / 5 // MAX = 51A // LSB = 0.2A
+  uint8_t _amp_fwd_max;   // AMPS = _amp_fwd / 2 // MAX = 127A // LSB = 0.5A
+  uint8_t _amp_break_max; // AMPS = _amp_break / 5 // MAX = 51A // LSB = 0.2A
+  uint8_t _amp_fwd_min;   // AMPS = _amp_fwd / 2 // MAX = 127A // LSB = 0.5A
+  uint8_t _amp_break_min; // AMPS = _amp_break / 5 // MAX = 51A // LSB = 0.2A
 } RemoteData;
 
 // functions
@@ -168,8 +176,11 @@ void setup() {
   DEB_cruise.attach(PIN_BTN_CRUISE); // standard-interval 10 ms
 
   EEPROM.get(eeDeadband, RemoteData._deadband);
-  EEPROM.get(eeFwd, amp_fwd_max);
-  EEPROM.get(eeBreak, amp_break_max);
+  EEPROM.get(eeFwdMax, amp_fwd_max);
+  EEPROM.get(eeBreakMax, amp_break_max);
+  EEPROM.get(eeFwdMin, amp_fwd_min);
+  EEPROM.get(eeBreakMin, amp_break_min);
+  EEPROM.get(eeCellcount, cellcount);
 
   tft.init();
   tft.setRotation(0); // portrait
@@ -257,8 +268,10 @@ void loop() {
 
   // read POTI_FWD and POTI_BREAK and map them between 0 and amp_fwd / 0 and amp_break
   // analogRead = 0-1023 // >> 3 = 0-127 // MAX(amp_fwd_max)=255 // MAX(result)=32385 // >> 7 = 253
-  RemoteData._amp_fwd = ((analogRead(PIN_POTI_FWD) >> 3) * amp_fwd_max) >> 7;
-  RemoteData._amp_break = ((analogRead(PIN_POTI_BREAK) >> 3) * amp_break_max) >> 7;
+  RemoteData._amp_fwd_max = ((analogRead(PIN_POTI_FWD) >> 3) * amp_fwd_max) >> 7;
+  RemoteData._amp_break_max = ((analogRead(PIN_POTI_BREAK) >> 3) * amp_break_max) >> 7;
+  RemoteData._amp_fwd_min = ((analogRead(PIN_POTI_FWD) >> 3) * amp_fwd_min) >> 7;
+  RemoteData._amp_break_min = ((analogRead(PIN_POTI_BREAK) >> 3) * amp_break_min) >> 7;
   // ToDo: Test against map()
 
   // readButtons
@@ -285,9 +298,9 @@ void loop() {
     _millis = millis();
     if (_millis > SDlastPrint + SDrefresh) {
       String logString;
-      logString += String(RemoteData.thr) + ";" + String(RemoteData.cruise) + ";" + String(RemoteData._deadband) + ";" + String(RemoteData._amp_fwd) + ";" + String(RemoteData._amp_break) + ";" + String(VescMeasuredValues.avgMotorCurrent) +
-                   ";" + String(VescMeasuredValues.avgInputCurrent) + ";" + String(VescMeasuredValues.dutyCycleNow) + ";" + String(VescMeasuredValues.rpm) + ";" + String(VescMeasuredValues.inpVoltage) + ";" +
-                   String(VescMeasuredValues.ampHours) + ";" + String(VescMeasuredValues.ampHoursCharged) + ";" + String(VescMeasuredValues.tachometer);
+      logString += String(RemoteData.thr) + ";" + String(RemoteData.cruise) + ";" + String(RemoteData._deadband) + ";" + String(RemoteData._amp_fwd_max) + ";" + String(RemoteData._amp_break_max) + ";" + String(RemoteData._amp_fwd_min) +
+                   ";" + String(RemoteData._amp_break_min) + ";" + String(VescMeasuredValues.avgMotorCurrent) + ";" + String(VescMeasuredValues.avgInputCurrent) + ";" + String(VescMeasuredValues.dutyCycleNow) + ";" +
+                   String(VescMeasuredValues.rpm) + ";" + String(VescMeasuredValues.inpVoltage) + ";" + String(VescMeasuredValues.ampHours) + ";" + String(VescMeasuredValues.ampHoursCharged) + ";" + String(VescMeasuredValues.tachometer);
       logfile.println(logString);
       SDlastPrint = _millis;
     }
@@ -395,7 +408,7 @@ void FillBattery(uint8_t value) {
 void SettingsMenu() {
   drawSettings();
   drawSettingValues(0);
-  int8_t currentSetting = 0; // 0=save // 1=deadband // 2=amp_fwd // 3=amp_break
+  int8_t currentSetting = 0; // 0=save // 1=deadband // 2=amp_fwd_max // 3=amp_break_max // 4=amp_fwd_min // 5=amp_break_min // 6=cellcount
   bool ok;
   bool triggerStick;
   uint16_t stick;
@@ -425,8 +438,8 @@ void SettingsMenu() {
         ChangeSettings(false, currentSetting);
       triggerStick = false;
     }
-    if (currentSetting > 3)
-      currentSetting = 3;
+    if (currentSetting > 6)
+      currentSetting = 6;
     if (currentSetting < 0)
       currentSetting = 0;
     drawSettingValues(currentSetting);
@@ -447,6 +460,15 @@ void ChangeSettings(bool up, uint16_t currentS) {
   case 3:
     up ? amp_break_max++ : amp_break_max--;
     break;
+  case 4:
+    up ? amp_fwd_min++ : amp_fwd_min--;
+    break;
+  case 5:
+    up ? amp_break_min++ : amp_break_min--;
+    break;
+  case 6:
+    up ? cellcount++ : cellcount--;
+    break;
   }
 }
 
@@ -454,30 +476,47 @@ void drawSettings() {
   tft.setTextSize(1); // no scaling
   tft.fillScreen(TFT_BLACK);
   tft.setTextColor(TFT_YELLOW, TFT_BLACK);
-  tft.drawString("SETTINGS", 0, 0, 4); // Font 4
+  tft.drawCentreString("SETTINGS", 64, 5, 4); // Font 4
 
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.drawString("Deadband", 0, 30, 2);
-  tft.drawString("FWD", 0, 50, 2);
-  tft.drawRightString("A", 128, 50, 2);
-  tft.drawString("Break", 0, 70, 2);
-  tft.drawRightString("A", 128, 70, 2);
+  tft.drawString("Deadband", 5, 35, 2);
+  tft.drawString("FWD max", 5, 55, 2);
+  tft.drawRightString("A", 120, 55, 2);
+  tft.drawString("Break max", 5, 75, 2);
+  tft.drawRightString("A", 120, 75, 2);
+  tft.drawString("FWD min", 5, 95, 2);
+  tft.drawRightString("A", 120, 95, 2);
+  tft.drawString("Break min", 5, 115, 2);
+  tft.drawRightString("A", 120, 115, 2);
+  tft.drawString("LiPo Cells", 5, 135, 2);
 }
 
 // Write Values, green when saved, red when new, current marked with white background
 void drawSettingValues(uint16_t currentS) {
   tft.setTextColor(RemoteData._deadband == EEPROM.get(eeDeadband, RemoteData._deadband) ? TFT_GREEN : TFT_RED, currentS == 1 ? TFT_WHITE : TFT_BLACK);
-  tft.drawNumber(RemoteData._deadband, 80, 30, 2);
+  tft.drawNumber(RemoteData._deadband, 85, 35, 2);
 
-  tft.setTextColor(amp_fwd_max == EEPROM.get(eeFwd, amp_fwd_max) ? TFT_GREEN : TFT_RED, currentS == 2 ? TFT_WHITE : TFT_BLACK);
-  tft.drawNumber(amp_fwd_max, 80, 50, 2);
+  tft.setTextColor(amp_fwd_max == EEPROM.get(eeFwdMax, amp_fwd_max) ? TFT_GREEN : TFT_RED, currentS == 2 ? TFT_WHITE : TFT_BLACK);
+  tft.drawNumber(amp_fwd_max, 85, 55, 2);
 
-  tft.setTextColor(amp_break_max == EEPROM.get(eeBreak, amp_break_max) ? TFT_GREEN : TFT_RED, currentS == 3 ? TFT_WHITE : TFT_BLACK);
-  tft.drawNumber(amp_break_max, 80, 70, 2);
+  tft.setTextColor(amp_break_max == EEPROM.get(eeBreakMax, amp_break_max) ? TFT_GREEN : TFT_RED, currentS == 3 ? TFT_WHITE : TFT_BLACK);
+  tft.drawNumber(amp_break_max, 85, 75, 2);
+
+  tft.setTextColor(amp_fwd_min == EEPROM.get(eeFwdMin, amp_fwd_min) ? TFT_GREEN : TFT_RED, currentS == 4 ? TFT_WHITE : TFT_BLACK);
+  tft.drawNumber(amp_fwd_min, 85, 95, 2);
+
+  tft.setTextColor(amp_break_min == EEPROM.get(eeBreakMin, amp_break_min) ? TFT_GREEN : TFT_RED, currentS == 5 ? TFT_WHITE : TFT_BLACK);
+  tft.drawNumber(amp_break_min, 85, 115, 2);
+
+  tft.setTextColor(cellcount == EEPROM.get(eeCellcount, cellcount) ? TFT_GREEN : TFT_RED, currentS == 6 ? TFT_WHITE : TFT_BLACK);
+  tft.drawNumber(cellcount, 85, 135, 2);
 }
 
 void SaveSettings() {
   EEPROM.update(eeDeadband, RemoteData._deadband);
-  EEPROM.update(eeFwd, amp_fwd_max);
-  EEPROM.update(eeBreak, amp_break_max);
+  EEPROM.update(eeFwdMax, amp_fwd_max);
+  EEPROM.update(eeBreakMax, amp_break_max);
+  EEPROM.update(eeFwdMin, amp_fwd_min);
+  EEPROM.update(eeBreakMin, amp_break_min);
+  EEPROM.update(eeCellcount, cellcount);
 }
