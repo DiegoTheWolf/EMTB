@@ -33,6 +33,6 @@ struct RemoteDataStruct {
   uint8_t _deadband;
   uint8_t _amp_fwd;   // AMPS = _amp_fwd / 2 // MAX = 127A // LSB = 0.5A
   uint8_t _amp_break; // AMPS = _amp_break / 10 // MAX = 25.5A // LSB = 0.1A
-} RemoteData;
+};
 
 #endif

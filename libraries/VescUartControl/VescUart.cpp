@@ -179,8 +179,8 @@ bool ProcessReadPacket(uint8_t* message, bldcMeasure& values, int len) {
 		values.duty_now  = buffer_get_float16(message, 1000.0, &ind);
 		values.rpm = buffer_get_int32(message, &ind);
 		values.v_in  = buffer_get_float16(message, 10.0, &ind);
-		values.ampHours = buffer_get_float32(message, 10000.0, &ind);
-		values.ampHoursCharged = buffer_get_float32(message, 10000.0, &ind);
+		values.amp_hours = buffer_get_float32(message, 10000.0, &ind);
+		values.amp_hours_charged = buffer_get_float32(message, 10000.0, &ind);
 		//values.watt_hours = buffer_get_float32(data, 10000.0, &ind);
 		//values.watt_hours_charged = buffer_get_float32(data, 10000.0, &ind);
 		//values.tachometer = buffer_get_int32(message, &ind);
@@ -252,25 +252,27 @@ void VescUartSetCurrentBrake(float brakeCurrent) {
 void SerialPrint(uint8_t* data, int len) {
 
 	//	DEBUGSERIAL.print("Data to display: "); DEBUGSERIAL.println(sizeof(data));
-
+#ifdef DEBUGSERIAL
 	for (int i = 0; i <= len; i++)
 	{
 		DEBUGSERIAL.print(data[i]);
 		DEBUGSERIAL.print("\t");
 	}
 	DEBUGSERIAL.println("");
+#endif
 }
 
 
 void SerialPrint(const bldcMeasure& values) {
-	DEBUGSERIAL.print("avgMotorCurrent: "); DEBUGSERIAL.println(values.avgMotorCurrent);
-	DEBUGSERIAL.print("avgInputCurrent: "); DEBUGSERIAL.println(values.avgInputCurrent);
-	DEBUGSERIAL.print("dutyCycleNow: "); DEBUGSERIAL.println(values.dutyCycleNow);
+#ifdef DEBUGSERIAL
+	DEBUGSERIAL.print("current_motor: "); DEBUGSERIAL.println(values.current_motor);
+	DEBUGSERIAL.print("current_in: "); DEBUGSERIAL.println(values.current_in);
+	DEBUGSERIAL.print("duty_now: "); DEBUGSERIAL.println(values.duty_now);
 	DEBUGSERIAL.print("rpm: "); DEBUGSERIAL.println(values.rpm);
-	DEBUGSERIAL.print("inputVoltage: "); DEBUGSERIAL.println(values.inpVoltage);
-	DEBUGSERIAL.print("ampHours: "); DEBUGSERIAL.println(values.ampHours);
-	DEBUGSERIAL.print("ampHoursCharges: "); DEBUGSERIAL.println(values.ampHoursCharged);
-	DEBUGSERIAL.print("tachometer: "); DEBUGSERIAL.println(values.tachometer);
+	DEBUGSERIAL.print("inputVoltage: "); DEBUGSERIAL.println(values.v_in);
+	DEBUGSERIAL.print("amp_hours: "); DEBUGSERIAL.println(values.amp_hours);
+	DEBUGSERIAL.print("ampHoursCharges: "); DEBUGSERIAL.println(values.amp_hours_charged);
 	DEBUGSERIAL.print("tachometerAbs: "); DEBUGSERIAL.println(values.tachometerAbs);
+#endif
 }
 

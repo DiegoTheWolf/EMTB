@@ -38,20 +38,20 @@
 /* PIN Definitions -> ProMini
                 DTR|TX0|RXI|VCC|GND|GND --> FTDI programmer
 
-                                VESC RX <-- TX		RAW
-                                VESC TX <-- RX		GND --> Step-Down GND
-                                                                                RST		RST
-                                                                                GND		VCC --> Step-Down +3.3V
-                                                                                                        A5
-        Button Cruise <-- 2			A3 --> Poti(Throttle)
-                                                                                                        A4
-Button Settings <-- 3			A2
-                CE nRF24L01 <-- 4			A1
-                CS nRF24L01 <--	5			A0
-                        CS SDcard <-- 6			13 --> nRF24L01 SCK  | SDcard SCK	 | TFT SCK
-                                 CS TFT <-- 7			12 --> nRF24L01 MISO | SDcard MISO
-                  Reset TFT <-- 8			11 --> nRF24L01 MOSI | SDcard MOSI | TFT SDA
-                                 A0 TFT <--	9			10 --> TFT LED
+        VESC RX <-- TX		RAW
+        VESC TX <-- RX		GND --> Step-Down GND
+                    RST		RST
+                    GND		VCC --> Step-Down +3.3V
+                        A5
+  Button Cruise <-- 2			A3 --> Poti(Throttle)
+                        A4
+Button Settings <-- 3			A2 --> Poti(FWD)
+    CE nRF24L01 <-- 4			A1 --> Poti(Break)
+    CS nRF24L01 <--	5			A0 --> Poti(TFT LED)
+      CS SDcard <-- 6			13 --> nRF24L01 SCK  | SDcard SCK	 | TFT SCK
+        CS TFT  <-- 7			12 --> nRF24L01 MISO | SDcard MISO
+      Reset TFT <-- 8			11 --> nRF24L01 MOSI | SDcard MOSI | TFT SDA
+         A0 TFT <--	9			10 --> TFT LED
 */
 
 // Idea: Second/Third Poti for max AMPS
@@ -68,6 +68,7 @@ Button Settings <-- 3			A2
 #define PIN_POTI_THR A3
 #define PIN_POTI_FWD A2
 #define PIN_POTI_BREAK A1
+#define PIN_POTI_LED A0
 
 // constants
 const uint8_t channel = 77;
@@ -112,7 +113,7 @@ uint8_t avgIdx = 0;
 
 File logfile;
 
-struct RemoteData RemoteDataStruct;
+struct RemoteDataStruct RemoteData;
 
 struct bldcMeasure VescMeasuredValues;
 
@@ -142,6 +143,10 @@ void setup() {
   pinMode(PIN_POTI_THR, INPUT);
   pinMode(PIN_POTI_FWD, INPUT);
   pinMode(PIN_POTI_BREAK, INPUT);
+  pinMode(PIN_POTI_LED, INPUT);
+  pinMode(PIN_TFT_LED, OUTPUT);
+
+  analogWrite(PIN_TFT_LED, analogRead(PIN_POTI_LED) >> 2);
 
   DEB_cruise.attach(PIN_BTN_CRUISE); // standard-interval 10 ms
 
@@ -236,8 +241,8 @@ void loop() {
     avgIdx = 0;
   RemoteData.thr = avgSum / avgCnt;
 
-  RemoteData._amp_fwd = map(analogRead(PIN_POTI_FWD), 0, 1023, amp_fwd_min, amp_fwd_max)
-	RemoteData._amp_break = map(analogRead(PIN_POTI_BREAK), 0, 1023, amp_break_min, amp_break_max)
+  RemoteData._amp_fwd = map(analogRead(PIN_POTI_FWD), 0, 1023, amp_fwd_min, amp_fwd_max);
+  RemoteData._amp_break = map(analogRead(PIN_POTI_BREAK), 0, 1023, amp_break_min, amp_break_max);
 
   // readButtons
   DEB_cruise.update();
@@ -263,9 +268,9 @@ void loop() {
     _millis = millis();
     if (_millis > SDlastPrint + SDrefresh) {
       String logString;
-      logString += String(RemoteData.thr) + ";" + String(RemoteData.cruise) + ";" + String(RemoteData._deadband) + ";" + String(RemoteData._amp_fwd) + ";" + String(RemoteData._amp_break) + 
-                   ";" + String(VescMeasuredValues.current_motor) + ";" + String(VescMeasuredValues.current_in) + ";" + String(VescMeasuredValues.duty_now) + ";" +
-                   String(VescMeasuredValues.rpm) + ";" + String(VescMeasuredValues.v_in) + ";" + String(VescMeasuredValues.ampHours) + ";" + String(VescMeasuredValues.ampHoursCharged) + ";" + String(VescMeasuredValues.tachometerAbs);
+      logString += String(RemoteData.thr) + ";" + String(RemoteData.cruise) + ";" + String(RemoteData._deadband) + ";" + String(RemoteData._amp_fwd) + ";" + String(RemoteData._amp_break) + ";" + String(VescMeasuredValues.current_motor) +
+                   ";" + String(VescMeasuredValues.current_in) + ";" + String(VescMeasuredValues.duty_now) + ";" + String(VescMeasuredValues.rpm) + ";" + String(VescMeasuredValues.v_in) + ";" + String(VescMeasuredValues.amp_hours) + ";" +
+                   String(VescMeasuredValues.amp_hours_charged) + ";" + String(VescMeasuredValues.tachometerAbs);
       logfile.println(logString);
       SDlastPrint = _millis;
     }
@@ -283,8 +288,9 @@ void loop() {
         ridetime = _millis; // Reset Ridetime. This is inside the TFT Loop so it doesn't get called every loop.
       }
     }
+    analogWrite(PIN_TFT_LED, analogRead(PIN_POTI_LED) >> 2); // Set TFT brightnes
     drawValues();
-		fillBattery(VescMeasuredValues.v_in * 255 / cellcount * 4.2);
+    fillBattery(VescMeasuredValues.v_in * 255 / cellcount * 4.2);
     TFTlastPaint = _millis;
   }
 }
@@ -302,28 +308,28 @@ void drawLabels() {
 void drawValues() {
   drawValuesNONE();
   tft.setTextSize(2);
-  tft.drawNumber(VescMeasuredValues.rpm * ratio_RpmSpeed, 7, 0, 4); 
+  tft.drawNumber(VescMeasuredValues.rpm * ratio_RpmSpeed, 7, 0, 4);
   tft.setTextSize(1);
-	tft.drawNumber(RemoteData._amp_fwd / 2, 90, 20, 2);
-	tft.drawNumber(RemoteData._amp_break / 10, 110, 20, 2);
-	
+  tft.drawNumber(RemoteData._amp_fwd / 2, 90, 20, 2);
+  tft.drawNumber(RemoteData._amp_break / 10, 110, 20, 2);
+
   tft.drawNumber(VescMeasuredValues.v_in, 108 + 3, 100, 4);
-  tft.drawNumber(VescMeasuredValues.avgMotorCurrent, 2, 51, 4);
-  tft.drawNumber(VescMeasuredValues.dutyCycleNow, 49, 51, 4); 
-  tft.drawNumber(VescMeasuredValues.tachometer * ratio_TachoDist, 2, 96, 2);
-  tft.drawNumber(millis() / (1000 * 60), 12, 115, 2); // h
-  tft.drawNumber((millis() % (1000 * 60)) / 1000, 53, 115, 2);        // s
-  tft.drawNumber(VescMeasuredValues.avgInputCurrent, 6, 134, 4);
+  tft.drawNumber(VescMeasuredValues.current_motor, 2, 51, 4);
+  tft.drawNumber(VescMeasuredValues.duty_now, 49, 51, 4);
+  tft.drawNumber(VescMeasuredValues.tachometerAbs * ratio_TachoDist, 2, 96, 2);
+  tft.drawNumber(millis() / (1000 * 60), 12, 115, 2);          // h
+  tft.drawNumber((millis() % (1000 * 60)) / 1000, 53, 115, 2); // s
+  tft.drawNumber(VescMeasuredValues.current_in, 6, 134, 4);
 }
 
 void drawValuesNONE() {
-  tft.fillRect(7, 0, 56, 38, TFT_BLACK);   // KMH
-  tft.fillRect(90, 29, 28, 18, TFT_BLACK); // ampSettings
-  tft.fillRect(2, 52, 28, 18, TFT_BLACK);  // Motor
-  tft.fillRect(50, 52, 28, 18, TFT_BLACK); // Duty
-  tft.fillRect(2, 96, 50, 16, TFT_BLACK);  // Dist
-  tft.fillRect(7, 115, 70, 39, TFT_BLACK); // Time&&mAh
-	tft.fillRect(108, 100, 128 - 108, 16, TFT_WHITE); //bat
+  tft.fillRect(7, 0, 56, 38, TFT_BLACK);            // KMH
+  tft.fillRect(90, 29, 28, 18, TFT_BLACK);          // ampSettings
+  tft.fillRect(2, 52, 28, 18, TFT_BLACK);           // Motor
+  tft.fillRect(50, 52, 28, 18, TFT_BLACK);          // Duty
+  tft.fillRect(2, 96, 50, 16, TFT_BLACK);           // Dist
+  tft.fillRect(7, 115, 70, 39, TFT_BLACK);          // Time&&mAh
+  tft.fillRect(108, 100, 128 - 108, 16, TFT_WHITE); // bat
 }
 
 // Return is an RGB value.
@@ -340,14 +346,14 @@ uint16_t gradientRYG(uint8_t value) {
 void drawBattery(uint16_t color) {
   // fillRect(x, y, w, h, color);
   // Filling overlapping rectangles saves 86byte but is 9 times slower
-  tft.fillRect(108 + 2, 50, 16, 2, color); // Top
-	tft.fillRect(108 + 2, 50 + 100, 16, 2, color); // Bot
-  tft.fillRect(108, 50, 2, 100, color);      // Left
-	tft.fillRect(108 + 20, 50, 2, 100, color); // Right
+  tft.fillRect(108 + 2, 50, 16, 2, color);       // Top
+  tft.fillRect(108 + 2, 50 + 100, 16, 2, color); // Bot
+  tft.fillRect(108, 50, 2, 100, color);          // Left
+  tft.fillRect(108 + 20, 50, 2, 100, color);     // Right
 }
 
 void fillBattery(uint8_t value) {
-  uint8_t line = 107 + 50 - (value / 3); //85 lines @ 255
+  uint8_t line = 107 + 50 - (value / 3);            // 85 lines @ 255
   tft.fillRect(108 + 2, 50 + 2, 16, 96, TFT_BLACK); // Overwrite all previous
   if (value > 0) {
     while (line <= 157) { // last line
@@ -355,10 +361,10 @@ void fillBattery(uint8_t value) {
       if (line >= 152) {
         color_input = 0;
       } else {
-				color_input = map(line, 60, 153, 255, 0);
+        color_input = map(line, 60, 153, 255, 0);
       }
-			// drawFastHLine(x, y, w, color)
-			tft.drawFastHLine(108 + 2, line, 18, gradientRYG(color_input));
+      // drawFastHLine(x, y, w, color)
+      tft.drawFastHLine(108 + 2, line, 18, gradientRYG(color_input));
       line++;
     }
   } else { // draw a red X
