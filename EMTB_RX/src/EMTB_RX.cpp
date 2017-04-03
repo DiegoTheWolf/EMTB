@@ -11,7 +11,6 @@
 
 const uint8_t channel = 77;
 const uint64_t pipe = 0x52582d5458; // 'RX-TX' pipe
-const uint16_t looptime = 20000;    // [µs] 20ms = 50Hz
 const uint8_t timeout = 100;        // [ms]
 const uint8_t deadband = 255;       // no throttle can be given, only when overwritten bei the Remote data
 const uint8_t amp_fwd = 0;          // Turn off output
@@ -21,31 +20,11 @@ const uint8_t amp_break = 0;        // Turn off output
 // ToDo: Safety: Start Writing to VESC only after Throttle was centered.
 
 uint32_t timeLastRemote;
+uint8_t lastDuty;
 
-struct RemoteDataStruct {
-  int8_t thr;
-  bool cruise;
-  uint8_t _deadband;
-  uint8_t _amp_fwd; // value = _amp_fwd / 2
-  uint8_t _amp_break; // value = _amp_break / 5
-} RemoteData;
+struct RemoteData RemoteDataStruct;
 
 struct bldcMeasure VescMeasuredValues;
-/*
-struct bldcMeasure {
-	// 7 Values int16_t not read(14 byte)
-	float avgMotorCurrent;
-	float avgInputCurrent;
-	float dutyCycleNow;
-	long rpm;
-	float inpVoltage;
-	float ampHours;
-	float ampHoursCharged;
-	// 2 values int32_t not read (8 byte)
-	long tachometer;
-	long tachometerAbs;
-}
-*/
 
 // Set up nRF24L01 radio on SPI bus plus pins 7 & 8 (CE & CS)
 RF24 radio(7, 8);
@@ -94,19 +73,22 @@ void loop() {
     }
   }
 
-  // Set VESC values
-  if (RemoteData.thr > deadband) {
-    VescUartSetCurrent(RemoteData.thr * (amp_fwd / 2.0) / 127.0);
-  } else if (RemoteData.thr < -deadband) {
-    VescUartSetCurrentBrake((RemoteData.thr + 127.0) * (amp_break / 5.0) / (127.0 - amp_break));
-  } else {
-    VescUartSetCurrent(0);
-    VescUartSetCurrentBrake(0);
-  }
-
-  // managing looptime
-  // On overflow the next loop runs directly. This is acceptable.
-  unsigned long started_waiting_at = micros();
-  while (micros() - started_waiting_at < looptime)
-    ;
+	// Set Duty once if over 5%, else reset duty and apply current
+	if (RemoteData.cruise) {
+		if (lastDuty == 0 && VescMeasuredValues.duty_now > 5) {
+			lastDuty = VescMeasuredValues.duty_now;
+			VescUartSetDuty(lastDuty); 
+		}
+	} else {
+		// Set VESC currents && reset lastDuty
+		lastDuty = 0;
+		if (RemoteData.thr > deadband) {
+			VescUartSetCurrent(RemoteData.thr * (amp_fwd / 2.0) / 127.0);
+		} else if (RemoteData.thr < -deadband) {
+			VescUartSetCurrentBrake(RemoteData.thr * (amp_break / 5.0) / -127.0);
+		} else {
+			VescUartSetCurrent(0);
+			VescUartSetCurrentBrake(0);
+		}
+	}
 }
