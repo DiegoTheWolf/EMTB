@@ -70,11 +70,15 @@ Button Settings <-- 3			A2 --> Poti(FWD)
 #define PIN_POTI_BREAK A1
 #define PIN_POTI_LED A0
 
+// time calculations
+#define SECS_PER_MIN (60UL)
+#define numberOfSeconds(_time_) (_time_ % SECS_PER_MIN)
+#define numberOfMinutes(_time_) ((_time_ / SECS_PER_MIN) % SECS_PER_MIN)
+
 // constants
 const uint8_t channel = 77;
 const uint64_t pipe = 0x52582d5458;                                                                         // 'RX-TX' pipe
-const uint32_t time_settings = 4000;                                                                        // [ms]
-const uint32_t SdAbortOk = 4000;                                                                            // [ms]
+const uint32_t time_settings = 4095;                                                                        // [ms]
 const uint8_t eeDeadband = 0;                                                                               // EEPROM Address
 const uint8_t eeFwdMax = 1;                                                                                 // EEPROM Address
 const uint8_t eeBreakMax = 2;                                                                               // EEPROM Address
@@ -104,6 +108,10 @@ uint8_t amp_break_max;
 uint8_t amp_fwd_min;
 uint8_t amp_break_min;
 uint8_t cellcount;
+uint8_t old_amp_fwd;
+uint8_t old_amp_break;
+uint8_t battery;
+uint8_t old_battery;
 
 // average
 uint16_t avgSum = 0;
@@ -116,6 +124,7 @@ File logfile;
 struct RemoteDataStruct RemoteData;
 
 struct bldcMeasure VescMeasuredValues;
+struct bldcMeasure VescOldValues;
 
 // functions
 void WaitForSdAbort();
@@ -161,26 +170,32 @@ void setup() {
   tft.setRotation(0); // portrait
   tft.fillScreen(TFT_BLACK);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.drawCentreString("STARTUP", 64, 40, 4);
+  tft.drawCentreString("START", 64, 40, 4);
 
   // Check if the button is pressed at startup.
   // Holding it down longer then "time_settings" will enter the settingsMenu and abort startup
+  bool written = false;
   while (digitalRead(PIN_BTN_SETTINGS)) {
-    tft.setTextColor(TFT_YELLOW, TFT_BLACK);
-    tft.drawCentreString("Hold for Settings", 64, 100, 2);
+    if (!written) {
+      tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+      tft.drawCentreString("Settings", 64, 100, 2);
+      written = true;
+    }
     if (millis() > time_settings) {
       settingsMenu();
     }
   }
-  tft.fillRect(10, 100, 109, 16, TFT_WHITE); // Overwrite "Settings"
+
+  tft.fillRect(10, 100, 109, 16, TFT_BLACK); // Overwrite "Settings"
+  tft.drawCentreString("Init", 64, 100, 2);
 
   if (!SD.begin(PIN_SDCARD_CS)) {
-    WaitForSdAbort();
+    tft.drawCentreString("No SD Card", 0, 130, 2);
   } else {
     hasSDcard = true;
     logfile = SD.open("logfile.txt", FILE_WRITE);
     if (!logfile)
-      WaitForSdAbort();
+      tft.drawCentreString("No SD Card", 0, 130, 2);
   }
 
   Serial.begin(115200);
@@ -203,31 +218,7 @@ void setup() {
 
   tft.fillScreen(TFT_BLACK);
   drawBattery(TFT_WHITE);
-  fillBattery(0);
-}
-
-void WaitForSdAbort() {
-  uint16_t waitStart = millis();
-  bool pressStart;
-  tft.drawCentreString("FAILED ...", 64, 100, 4);
-  tft.drawString("Continue with [CRUISE] ...", 0, 100, 2);
-  while (1) {
-    pressStart = false;
-    while (digitalRead(PIN_BTN_CRUISE)) {
-      if (!pressStart) {
-        pressStart = true;
-        waitStart = millis();
-      }
-      tft.setTextColor(TFT_YELLOW, TFT_BLACK);
-      tft.drawCentreString("Settings...", 64, 40, 2);
-      if (millis() - waitStart > SdAbortOk) {
-        hasSDcard = false;
-        goto bailout;
-      }
-    }
-  }
-bailout:
-  delay(1);
+  drawLabels();
 }
 
 void loop() {
@@ -241,6 +232,9 @@ void loop() {
     avgIdx = 0;
   RemoteData.thr = avgSum / avgCnt;
 
+  old_amp_fwd = RemoteData._amp_fwd;
+  old_amp_break = RemoteData._amp_break;
+
   RemoteData._amp_fwd = map(analogRead(PIN_POTI_FWD), 0, 1023, amp_fwd_min, amp_fwd_max);
   RemoteData._amp_break = map(analogRead(PIN_POTI_BREAK), 0, 1023, amp_break_min, amp_break_max);
 
@@ -250,12 +244,12 @@ void loop() {
 
   if (SendEnabled) {
     // send values to RX
-    bool sendOK = radio.write(&RemoteData, sizeof(RemoteData));
+    radio.write(&RemoteData, sizeof(RemoteData));
 
     // recieve AckPayload
     while (radio.isAckPayloadAvailable()) {
       radio.read(&VescMeasuredValues, sizeof(VescMeasuredValues));
-      bool recOK = true;
+      VescOldValues = VescMeasuredValues;
     }
   } else {
     if (millis() > waitBeforeSend)
@@ -267,11 +261,8 @@ void loop() {
   if (hasSDcard) {
     _millis = millis();
     if (_millis > SDlastPrint + SDrefresh) {
-      String logString;
-      logString += String(RemoteData.thr) + ";" + String(RemoteData.cruise) + ";" + String(RemoteData._deadband) + ";" + String(RemoteData._amp_fwd) + ";" + String(RemoteData._amp_break) + ";" + String(VescMeasuredValues.current_motor) +
-                   ";" + String(VescMeasuredValues.current_in) + ";" + String(VescMeasuredValues.duty_now) + ";" + String(VescMeasuredValues.rpm) + ";" + String(VescMeasuredValues.v_in) + ";" + String(VescMeasuredValues.amp_hours) + ";" +
-                   String(VescMeasuredValues.amp_hours_charged) + ";" + String(VescMeasuredValues.tachometerAbs);
-      logfile.println(logString);
+      logfile.write((const uint8_t *)&RemoteData, sizeof(RemoteData));
+      logfile.write((const uint8_t *)&VescMeasuredValues, sizeof(VescMeasuredValues));
       SDlastPrint = _millis;
     }
   }
@@ -283,14 +274,17 @@ void loop() {
     if (digitalRead(PIN_BTN_SETTINGS)) {
       if (SettingsBtnPushTime == 0)
         SettingsBtnPushTime = _millis;
-      if (_millis > SettingsBtnPushTime + 2000) {
+      if (_millis > SettingsBtnPushTime + time_settings) {
         SettingsBtnPushTime = 0;
         ridetime = _millis; // Reset Ridetime. This is inside the TFT Loop so it doesn't get called every loop.
       }
+    } else {
+      SettingsBtnPushTime = 0;
     }
     analogWrite(PIN_TFT_LED, analogRead(PIN_POTI_LED) >> 2); // Set TFT brightnes
+
     drawValues();
-    fillBattery(VescMeasuredValues.v_in * 255 / cellcount * 4.2);
+
     TFTlastPaint = _millis;
   }
 }
@@ -301,25 +295,36 @@ void drawLabels() {
   tft.drawString("Motor", 2, 74, 2);
   tft.drawRightString("Duty", 76, 74, 2);
   tft.drawRightString("Dist", 78, 96, 2);
-  tft.drawString(":", 23, 115, 2);
-  tft.drawString(":", 47, 115, 2);
 }
 
 void drawValues() {
-  drawValuesNONE();
+  // drawValuesNONE();
+  old_battery = battery;
+  battery = VescMeasuredValues.v_in * 255 / cellcount * 4.2;
+  if (old_battery != battery)
+    fillBattery(battery);
   tft.setTextSize(2);
-  tft.drawNumber(VescMeasuredValues.rpm * ratio_RpmSpeed, 7, 0, 4);
+  if (VescMeasuredValues.rpm != VescOldValues.rpm)
+    tft.drawNumber(VescMeasuredValues.rpm * ratio_RpmSpeed, 7, 0, 4);
   tft.setTextSize(1);
-  tft.drawNumber(RemoteData._amp_fwd / 2, 90, 20, 2);
-  tft.drawNumber(RemoteData._amp_break / 10, 110, 20, 2);
+  if (RemoteData._amp_fwd != old_amp_fwd)
+    tft.drawNumber(RemoteData._amp_fwd / 2, 90, 20, 2);
+  if (RemoteData._amp_break != old_amp_break)
+    tft.drawNumber(RemoteData._amp_break / 10, 110, 20, 2);
 
-  tft.drawNumber(VescMeasuredValues.v_in, 108 + 3, 100, 4);
-  tft.drawNumber(VescMeasuredValues.current_motor, 2, 51, 4);
-  tft.drawNumber(VescMeasuredValues.duty_now, 49, 51, 4);
-  tft.drawNumber(VescMeasuredValues.tachometerAbs * ratio_TachoDist, 2, 96, 2);
-  tft.drawNumber(millis() / (1000 * 60), 12, 115, 2);          // h
-  tft.drawNumber((millis() % (1000 * 60)) / 1000, 53, 115, 2); // s
-  tft.drawNumber(VescMeasuredValues.current_in, 6, 134, 4);
+  if (VescMeasuredValues.v_in != VescOldValues.v_in)
+    tft.drawNumber(VescMeasuredValues.v_in, 108 + 3, 100, 4);
+  if (VescMeasuredValues.current_motor != VescOldValues.current_motor)
+    tft.drawNumber(VescMeasuredValues.current_motor, 2, 51, 4);
+  if (VescMeasuredValues.duty_now != VescOldValues.duty_now)
+    tft.drawNumber(VescMeasuredValues.duty_now, 49, 51, 4);
+  if (VescMeasuredValues.tachometerAbs != VescOldValues.tachometerAbs)
+    tft.drawNumber(VescMeasuredValues.tachometerAbs * ratio_TachoDist, 2, 96, 2);
+  uint32_t _ridetime = (millis() - ridetime) / 1000;
+  tft.drawNumber((_ridetime / 60) % 60, 12, 115, 2); // m
+  tft.drawNumber(_ridetime % 60, 53, 115, 2);        // s
+  if (VescMeasuredValues.current_in != VescOldValues.current_in)
+    tft.drawNumber(VescMeasuredValues.current_in, 6, 134, 4);
 }
 
 void drawValuesNONE() {
@@ -346,10 +351,10 @@ uint16_t gradientRYG(uint8_t value) {
 void drawBattery(uint16_t color) {
   // fillRect(x, y, w, h, color);
   // Filling overlapping rectangles saves 86byte but is 9 times slower
-  tft.fillRect(108 + 2, 50, 16, 2, color);       // Top
-  tft.fillRect(108 + 2, 50 + 100, 16, 2, color); // Bot
-  tft.fillRect(108, 50, 2, 100, color);          // Left
-  tft.fillRect(108 + 20, 50, 2, 100, color);     // Right
+  tft.fillRect(110, 71, 16, 2, color);  // Top
+  tft.fillRect(110, 158, 16, 2, color); // Bot
+  tft.fillRect(108, 71, 2, 89, color);  // Left
+  tft.fillRect(126, 71, 2, 89, color);  // Right
 }
 
 void fillBattery(uint8_t value) {
@@ -452,13 +457,13 @@ void drawSettings() {
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.drawString("Deadband", 5, 35, 2);
   tft.drawString("FWD max", 5, 55, 2);
-  tft.drawRightString("A", 120, 55, 2);
+  // tft.drawRightString("A", 120, 55, 2);
   tft.drawString("Break max", 5, 75, 2);
-  tft.drawRightString("A", 120, 75, 2);
+  //  tft.drawRightString("A", 120, 75, 2);
   tft.drawString("FWD min", 5, 95, 2);
-  tft.drawRightString("A", 120, 95, 2);
+  //  tft.drawRightString("A", 120, 95, 2);
   tft.drawString("Break min", 5, 115, 2);
-  tft.drawRightString("A", 120, 115, 2);
+  //  tft.drawRightString("A", 120, 115, 2);
   tft.drawString("LiPo Cells", 5, 135, 2);
 }
 
