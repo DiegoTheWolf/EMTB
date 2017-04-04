@@ -2065,6 +2065,22 @@ int TFT_ST7735::drawNumber(long long_num, int poX, int poY, int font)
 }
 
 /***************************************************************************************
+** Function name:           drawRightNumber
+** Description:             draw a long integer right justified to dX
+***************************************************************************************/
+int TFT_ST7735::drawRightNumber(long long_num, int dX, int poY, int font)
+{
+  byte tempdatum = textdatum;
+  int sumX = 0;
+  textdatum = TR_DATUM;
+  char str[12];
+  ltoa(long_num, str, 10);
+  sumX = drawString(str, dX, poY, font);
+  textdatum = tempdatum;
+  return sumX;
+}
+
+/***************************************************************************************
 ** Function name:           drawFloat
 ** Descriptions:            drawFloat, prints 7 non zero digits maximum
 ***************************************************************************************/
