@@ -139,6 +139,7 @@ void changeSettings(bool up, uint16_t currentS);
 void drawSettings();
 void drawSettingValues(uint16_t currentS);
 void saveSettings();
+void discardSettings();
 
 // objects
 RF24 radio(PIN_RADIO_CS, PIN_RADIO_CE); // Set up nRF24L01 radio on SPI bus
@@ -240,7 +241,7 @@ void loop() {
 
   // readButtons
   DEB_cruise.update();
-  RemoteData.cruise = DEB_cruise.read();
+  RemoteData.cruise = !DEB_cruise.read();
 
   if (SendEnabled) {
     // send values to RX
@@ -299,32 +300,34 @@ void drawLabels() {
 
 void drawValues() {
   // drawValuesNONE();
+  tft.setTextPadding(24);
+  tft.setTextColor(TFT_WHITE, TFT_RED);
   old_battery = battery;
   battery = VescMeasuredValues.v_in * 255 / cellcount * 4.2;
   if (old_battery != battery)
     fillBattery(battery);
   tft.setTextSize(2);
-  if (VescMeasuredValues.rpm != VescOldValues.rpm)
-    tft.drawNumber(VescMeasuredValues.rpm * ratio_RpmSpeed, 7, 0, 4);
+  // if (VescMeasuredValues.rpm != VescOldValues.rpm)
+  tft.drawNumber(VescMeasuredValues.rpm * ratio_RpmSpeed, 7, 0, 4);
   tft.setTextSize(1);
-  if (RemoteData._amp_fwd != old_amp_fwd)
-    tft.drawNumber(RemoteData._amp_fwd / 2, 90, 20, 2);
-  if (RemoteData._amp_break != old_amp_break)
-    tft.drawNumber(RemoteData._amp_break / 10, 110, 20, 2);
+  // if (RemoteData._amp_fwd != old_amp_fwd)
+  tft.drawNumber(RemoteData._amp_fwd / 2, 90, 20, 2);
+  // if (RemoteData._amp_break != old_amp_break)
+  tft.drawNumber(RemoteData._amp_break / 10, 110, 20, 2);
 
-  if (VescMeasuredValues.v_in != VescOldValues.v_in)
-    tft.drawNumber(VescMeasuredValues.v_in, 108 + 3, 100, 4);
-  if (VescMeasuredValues.current_motor != VescOldValues.current_motor)
-    tft.drawNumber(VescMeasuredValues.current_motor, 2, 51, 4);
-  if (VescMeasuredValues.duty_now != VescOldValues.duty_now)
-    tft.drawNumber(VescMeasuredValues.duty_now, 49, 51, 4);
-  if (VescMeasuredValues.tachometerAbs != VescOldValues.tachometerAbs)
-    tft.drawNumber(VescMeasuredValues.tachometerAbs * ratio_TachoDist, 2, 96, 2);
+  // if (VescMeasuredValues.v_in != VescOldValues.v_in)
+  tft.drawNumber(VescMeasuredValues.v_in, 108 + 3, 100, 4);
+  // if (VescMeasuredValues.current_motor != VescOldValues.current_motor)
+  tft.drawNumber(VescMeasuredValues.current_motor, 2, 51, 4);
+  // if (VescMeasuredValues.duty_now != VescOldValues.duty_now)
+  tft.drawNumber(VescMeasuredValues.duty_now, 49, 51, 4);
+  // if (VescMeasuredValues.tachometerAbs != VescOldValues.tachometerAbs)
+  tft.drawNumber(VescMeasuredValues.tachometerAbs * ratio_TachoDist, 2, 96, 2);
   uint32_t _ridetime = (millis() - ridetime) / 1000;
   tft.drawNumber((_ridetime / 60) % 60, 12, 115, 2); // m
   tft.drawNumber(_ridetime % 60, 53, 115, 2);        // s
-  if (VescMeasuredValues.current_in != VescOldValues.current_in)
-    tft.drawNumber(VescMeasuredValues.current_in, 6, 134, 4);
+                                                     // if (VescMeasuredValues.current_in != VescOldValues.current_in)
+  tft.drawNumber(VescMeasuredValues.current_in, 6, 134, 4);
 }
 
 void drawValuesNONE() {
@@ -390,7 +393,7 @@ void settingsMenu() {
   uint16_t stick;
   while (1) {
     DEB_cruise.update();
-    ok = DEB_cruise.read();
+    ok = !DEB_cruise.read();
     stick = analogRead(PIN_POTI_THR);
     // some movement has to be done to triggerStick
     // when button is pressed and stick moved change value.
@@ -398,6 +401,7 @@ void settingsMenu() {
     if (stick > 712 && !triggerStick) { // mid 512
       if (ok) {
         changeSettings(true, currentSetting);
+        triggerStick = true;
       } else {
         currentSetting++;
         triggerStick = true;
@@ -405,19 +409,20 @@ void settingsMenu() {
     } else if (stick < 312 && !triggerStick) {
       if (ok) {
         changeSettings(false, currentSetting);
+        triggerStick = true;
       } else {
         currentSetting--;
         triggerStick = true;
       }
     } else if (stick < 612 && stick > 412 && triggerStick) { // 100 difference so it won't jitter
-      if (ok)
-        changeSettings(false, currentSetting);
+      // if (ok)
+      //   changeSettings(false, currentSetting);
       triggerStick = false;
     }
     if (currentSetting > 6)
-      currentSetting = 6;
-    if (currentSetting < 0)
       currentSetting = 0;
+    if (currentSetting < 0)
+      currentSetting = 6;
     drawSettingValues(currentSetting);
   }
 }
@@ -425,7 +430,8 @@ void settingsMenu() {
 void changeSettings(bool up, uint16_t currentS) {
   switch (currentS) {
   case 0:
-    saveSettings();
+    up ? saveSettings() : discardSettings();
+    // up ? saveSettings() : discardSettings();
     break;
   case 1:
     up ? RemoteData._deadband++ : RemoteData._deadband--;
@@ -469,22 +475,30 @@ void drawSettings() {
 
 // Write Values, green when saved, red when new, current marked with white background
 void drawSettingValues(uint16_t currentS) {
-  tft.setTextColor(RemoteData._deadband == EEPROM.get(eeDeadband, RemoteData._deadband) ? TFT_GREEN : TFT_RED, currentS == 1 ? TFT_WHITE : TFT_BLACK);
+  uint8_t eeBuffer;
+  tft.setTextPadding(24); // 23px for max 255
+  EEPROM.get(eeDeadband, eeBuffer);
+  tft.setTextColor(RemoteData._deadband == eeBuffer ? TFT_GREEN : TFT_RED, currentS == 1 ? TFT_WHITE : TFT_BLACK);
   tft.drawNumber(RemoteData._deadband, 85, 35, 2);
 
-  tft.setTextColor(amp_fwd_max == EEPROM.get(eeFwdMax, amp_fwd_max) ? TFT_GREEN : TFT_RED, currentS == 2 ? TFT_WHITE : TFT_BLACK);
+  EEPROM.get(eeFwdMax, eeBuffer);
+  tft.setTextColor(amp_fwd_max == eeBuffer ? TFT_GREEN : TFT_RED, currentS == 2 ? TFT_WHITE : TFT_BLACK);
   tft.drawNumber(amp_fwd_max, 85, 55, 2);
 
-  tft.setTextColor(amp_break_max == EEPROM.get(eeBreakMax, amp_break_max) ? TFT_GREEN : TFT_RED, currentS == 3 ? TFT_WHITE : TFT_BLACK);
+  EEPROM.get(eeBreakMax, eeBuffer);
+  tft.setTextColor(amp_break_max == eeBuffer ? TFT_GREEN : TFT_RED, currentS == 3 ? TFT_WHITE : TFT_BLACK);
   tft.drawNumber(amp_break_max, 85, 75, 2);
 
-  tft.setTextColor(amp_fwd_min == EEPROM.get(eeFwdMin, amp_fwd_min) ? TFT_GREEN : TFT_RED, currentS == 4 ? TFT_WHITE : TFT_BLACK);
+  EEPROM.get(eeFwdMin, eeBuffer);
+  tft.setTextColor(amp_fwd_min == eeBuffer ? TFT_GREEN : TFT_RED, currentS == 4 ? TFT_WHITE : TFT_BLACK);
   tft.drawNumber(amp_fwd_min, 85, 95, 2);
 
-  tft.setTextColor(amp_break_min == EEPROM.get(eeBreakMin, amp_break_min) ? TFT_GREEN : TFT_RED, currentS == 5 ? TFT_WHITE : TFT_BLACK);
+  EEPROM.get(eeBreakMin, eeBuffer);
+  tft.setTextColor(amp_break_min == eeBuffer ? TFT_GREEN : TFT_RED, currentS == 5 ? TFT_WHITE : TFT_BLACK);
   tft.drawNumber(amp_break_min, 85, 115, 2);
 
-  tft.setTextColor(cellcount == EEPROM.get(eeCellcount, cellcount) ? TFT_GREEN : TFT_RED, currentS == 6 ? TFT_WHITE : TFT_BLACK);
+  EEPROM.get(eeCellcount, eeBuffer);
+  tft.setTextColor(cellcount == eeBuffer ? TFT_GREEN : TFT_RED, currentS == 6 ? TFT_WHITE : TFT_BLACK);
   tft.drawNumber(cellcount, 85, 135, 2);
 }
 
@@ -495,4 +509,13 @@ void saveSettings() {
   EEPROM.update(eeFwdMin, amp_fwd_min);
   EEPROM.update(eeBreakMin, amp_break_min);
   EEPROM.update(eeCellcount, cellcount);
+}
+
+void discardSettings() {
+  EEPROM.get(eeDeadband, RemoteData._deadband);
+  EEPROM.get(eeFwdMax, amp_fwd_max);
+  EEPROM.get(eeBreakMax, amp_break_max);
+  EEPROM.get(eeFwdMin, amp_fwd_min);
+  EEPROM.get(eeBreakMin, amp_break_min);
+  EEPROM.get(eeCellcount, cellcount);
 }

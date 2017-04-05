@@ -330,6 +330,7 @@ class TFT_ST7735 : public Print {
 
   int16_t  drawChar(unsigned int uniCode, int x, int y, int font),
            drawNumber(long long_num,int poX, int poY, int font),
+		   drawRightNumber(long long_num, int dX, int poY, int font),
            drawFloat(float floatNumber,int decimal,int poX, int poY, int font),
 
            drawString(char *string, int poX, int poY, int font),
