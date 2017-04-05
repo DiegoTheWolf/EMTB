@@ -36,10 +36,10 @@
 #include <printf.h>
 
 /* PIN Definitions -> ProMini
-                DTR|TX0|RXI|VCC|GND|GND --> FTDI programmer
+  DTR|TX0|RXI|VCC|GND|GND --> FTDI programmer
 
-        VESC RX <-- TX		RAW
-        VESC TX <-- RX		GND --> Step-Down GND
+										TX		RAW
+										RX		GND --> Step-Down GND
                     RST		RST
                     GND		VCC --> Step-Down +3.3V
                         A5
@@ -70,11 +70,6 @@ Button Settings <-- 3			A2 --> Poti(FWD)
 #define PIN_POTI_BREAK A1
 #define PIN_POTI_LED A0
 
-// time calculations
-#define SECS_PER_MIN (60UL)
-#define numberOfSeconds(_time_) (_time_ % SECS_PER_MIN)
-#define numberOfMinutes(_time_) ((_time_ / SECS_PER_MIN) % SECS_PER_MIN)
-
 // constants
 const uint8_t channel = 77;
 const uint64_t pipe = 0x52582d5458;                                                                         // 'RX-TX' pipe
@@ -84,7 +79,7 @@ const uint8_t eeFwdMax = 1;                                                     
 const uint8_t eeBreakMax = 2;                                                                               // EEPROM Address
 const uint8_t eeFwdMin = 3;                                                                                 // EEPROM Address
 const uint8_t eeBreakMin = 4;                                                                               // EEPROM Address
-const uint8_t eeCellcount = 5;                                                                              // EEPROM Address
+const uint8_t eeMaxVolt = 5;                                                                              // EEPROM Address
 const uint16_t TFTrefresh = 500;                                                                            // [ms]
 const uint16_t SDrefresh = 500;                                                                             // [ms]
 const uint8_t wheelsize = 200;                                                                              // [mm]
@@ -103,15 +98,16 @@ uint32_t SettingsBtnPushTime;
 uint32_t ridetime;
 bool SendEnabled;
 bool hasSDcard;
-uint8_t amp_fwd_max;
-uint8_t amp_break_max;
-uint8_t amp_fwd_min;
-uint8_t amp_break_min;
-uint8_t cellcount;
+uint8_t amp_fwd_max; // factor 0.5A
+uint8_t amp_break_max; // factor 0.1A
+uint8_t amp_fwd_min; // factor 0.5A
+uint8_t amp_break_min; // factor 0.1A
+uint8_t maxvolt; // factor 0.2A
 uint8_t old_amp_fwd;
 uint8_t old_amp_break;
 uint8_t battery;
 uint8_t old_battery;
+uint8_t lastBatLine;
 
 // average
 uint16_t avgSum = 0;
@@ -127,10 +123,8 @@ struct bldcMeasure VescMeasuredValues;
 struct bldcMeasure VescOldValues;
 
 // functions
-void WaitForSdAbort();
 void drawLabels();
 void drawValues();
-void drawValuesNONE();
 uint16_t gradientRYG(uint8_t value);
 void drawBattery(uint16_t color);
 void fillBattery(uint8_t value);
@@ -165,7 +159,7 @@ void setup() {
   EEPROM.get(eeBreakMax, amp_break_max);
   EEPROM.get(eeFwdMin, amp_fwd_min);
   EEPROM.get(eeBreakMin, amp_break_min);
-  EEPROM.get(eeCellcount, cellcount);
+  EEPROM.get(eeMaxVolt, maxvolt);
 
   tft.init();
   tft.setRotation(0); // portrait
@@ -259,35 +253,39 @@ void loop() {
 
   uint32_t _millis; // buffer 1x instead of 5x exec
   // Write Readings and AckPayload into a Logfile on the SD
+	bool SDsaved = false;
   if (hasSDcard) {
     _millis = millis();
     if (_millis > SDlastPrint + SDrefresh) {
       logfile.write((const uint8_t *)&RemoteData, sizeof(RemoteData));
       logfile.write((const uint8_t *)&VescMeasuredValues, sizeof(VescMeasuredValues));
       SDlastPrint = _millis;
+			SDsaved = true;
     }
   }
-  // Calculate Averages
+  
+	// Don't run SD save and TFT update in one loop. Both takes enough time.
+	if (!SDsaved) {
+		// Write Average-Values to screen (if changed)
+		_millis = millis(); // buffer 1x instead of 5x exec
+		if (_millis > TFTlastPaint + TFTrefresh) {
+			if (digitalRead(PIN_BTN_SETTINGS)) {
+				if (SettingsBtnPushTime == 0)
+					SettingsBtnPushTime = _millis;
+				if (_millis > SettingsBtnPushTime + time_settings) {
+					SettingsBtnPushTime = 0;
+					ridetime = _millis; // Reset Ridetime. This is inside the TFT Loop so it doesn't get called every loop.
+				}
+			} else {
+				SettingsBtnPushTime = 0;
+			}
+			analogWrite(PIN_TFT_LED, analogRead(PIN_POTI_LED) >> 2); // Set TFT brightnes
 
-  // Write Average-Values to screen (if changed)
-  _millis = millis(); // buffer 1x instead of 5x exec
-  if (_millis > TFTlastPaint + TFTrefresh) {
-    if (digitalRead(PIN_BTN_SETTINGS)) {
-      if (SettingsBtnPushTime == 0)
-        SettingsBtnPushTime = _millis;
-      if (_millis > SettingsBtnPushTime + time_settings) {
-        SettingsBtnPushTime = 0;
-        ridetime = _millis; // Reset Ridetime. This is inside the TFT Loop so it doesn't get called every loop.
-      }
-    } else {
-      SettingsBtnPushTime = 0;
-    }
-    analogWrite(PIN_TFT_LED, analogRead(PIN_POTI_LED) >> 2); // Set TFT brightnes
+			drawValues();
 
-    drawValues();
-
-    TFTlastPaint = _millis;
-  }
+			TFTlastPaint = _millis;
+		}
+	}
 }
 
 void drawLabels() {
@@ -299,45 +297,39 @@ void drawLabels() {
 }
 
 void drawValues() {
-  // drawValuesNONE();
-  tft.setTextPadding(24);
-  tft.setTextColor(TFT_WHITE, TFT_RED);
+   tft.setTextColor(TFT_WHITE, TFT_RED);
   old_battery = battery;
-  battery = VescMeasuredValues.v_in * 255 / cellcount * 4.2;
+  battery = (VescMeasuredValues.v_in * 255) / (maxvolt / 5.0);
   if (old_battery != battery)
     fillBattery(battery);
+	
   tft.setTextSize(2);
-  // if (VescMeasuredValues.rpm != VescOldValues.rpm)
-  tft.drawNumber(VescMeasuredValues.rpm * ratio_RpmSpeed, 7, 0, 4);
+	tft.setTextPadding(56); // xx (font4 * 2)
+  if (VescMeasuredValues.rpm != VescOldValues.rpm)
+		tft.drawRightNumber(VescMeasuredValues.rpm * ratio_RpmSpeed, 57, 0, 4);
+	
   tft.setTextSize(1);
-  // if (RemoteData._amp_fwd != old_amp_fwd)
-  tft.drawNumber(RemoteData._amp_fwd / 2, 90, 20, 2);
-  // if (RemoteData._amp_break != old_amp_break)
-  tft.drawNumber(RemoteData._amp_break / 10, 110, 20, 2);
-
-  // if (VescMeasuredValues.v_in != VescOldValues.v_in)
-  tft.drawNumber(VescMeasuredValues.v_in, 108 + 3, 100, 4);
-  // if (VescMeasuredValues.current_motor != VescOldValues.current_motor)
-  tft.drawNumber(VescMeasuredValues.current_motor, 2, 51, 4);
-  // if (VescMeasuredValues.duty_now != VescOldValues.duty_now)
-  tft.drawNumber(VescMeasuredValues.duty_now, 49, 51, 4);
-  // if (VescMeasuredValues.tachometerAbs != VescOldValues.tachometerAbs)
-  tft.drawNumber(VescMeasuredValues.tachometerAbs * ratio_TachoDist, 2, 96, 2);
-  uint32_t _ridetime = (millis() - ridetime) / 1000;
-  tft.drawNumber((_ridetime / 60) % 60, 12, 115, 2); // m
-  tft.drawNumber(_ridetime % 60, 53, 115, 2);        // s
-                                                     // if (VescMeasuredValues.current_in != VescOldValues.current_in)
-  tft.drawNumber(VescMeasuredValues.current_in, 6, 134, 4);
-}
-
-void drawValuesNONE() {
-  tft.fillRect(7, 0, 56, 38, TFT_BLACK);            // KMH
-  tft.fillRect(90, 29, 28, 18, TFT_BLACK);          // ampSettings
-  tft.fillRect(2, 52, 28, 18, TFT_BLACK);           // Motor
-  tft.fillRect(50, 52, 28, 18, TFT_BLACK);          // Duty
-  tft.fillRect(2, 96, 50, 16, TFT_BLACK);           // Dist
-  tft.fillRect(7, 115, 70, 39, TFT_BLACK);          // Time&&mAh
-  tft.fillRect(108, 100, 128 - 108, 16, TFT_WHITE); // bat
+	tft.setTextPadding(30); // xx,x (font2)
+  if (RemoteData._amp_fwd != old_amp_fwd)
+		tft.drawFloat(RemoteData._amp_fwd / 2.0, 1, 90, 20, 2);
+  if (RemoteData._amp_break != old_amp_break)
+		tft.drawFloat(RemoteData._amp_break / 10.0, 1, 110, 20, 2);
+  if (VescMeasuredValues.tachometerAbs != VescOldValues.tachometerAbs)
+		tft.drawFloat(VescMeasuredValues.tachometerAbs * ratio_TachoDist, 1, 2, 96, 2);
+	
+	tft.setTextPadding(42); // xxx (font4)
+  if (VescMeasuredValues.v_in != VescOldValues.v_in)
+		tft.drawNumber(VescMeasuredValues.v_in, 108 + 3, 100, 4);
+  if (VescMeasuredValues.current_motor != VescOldValues.current_motor)
+		tft.drawNumber(VescMeasuredValues.current_motor, 2, 51, 4);
+  if (VescMeasuredValues.duty_now != VescOldValues.duty_now)
+		tft.drawNumber(VescMeasuredValues.duty_now, 49, 51, 4);
+  if (VescMeasuredValues.current_in != VescOldValues.current_in)
+		tft.drawNumber(VescMeasuredValues.current_in, 6, 134, 4);
+	
+	uint32_t _ridetime = (millis() - ridetime) / 1000;
+  tft.drawNumber((_ridetime / 60), 12, 115, 2); // m
+  tft.drawNumber(_ridetime % 60, 53, 115, 2);   // s
 }
 
 // Return is an RGB value.
@@ -362,32 +354,35 @@ void drawBattery(uint16_t color) {
 
 void fillBattery(uint8_t value) {
   uint8_t line = 107 + 50 - (value / 3);            // 85 lines @ 255
-  tft.fillRect(108 + 2, 50 + 2, 16, 96, TFT_BLACK); // Overwrite all previous
-  if (value > 0) {
-    while (line <= 157) { // last line
-      int16_t color_input;
-      if (line >= 152) {
-        color_input = 0;
-      } else {
-        color_input = map(line, 60, 153, 255, 0);
-      }
-      // drawFastHLine(x, y, w, color)
-      tft.drawFastHLine(108 + 2, line, 18, gradientRYG(color_input));
-      line++;
-    }
-  } else { // draw a red X
-    // drawLine(x0, y0, x1, y1, color)
-    tft.drawLine(108 + 14, 50 + 30, 108 + 6, 50 + 80, TFT_RED);
-    tft.drawLine(108 + 13, 50 + 30, 108 + 5, 50 + 80, TFT_RED);
-    tft.drawLine(108 + 12, 50 + 30, 108 + 4, 50 + 80, TFT_RED);
-  }
+	if (line != lastBatLine){
+		lastBatLine = line;
+		tft.fillRect(108 + 2, 50 + 2, 16, 96, TFT_BLACK); // Overwrite all previous
+		if (value > 0) {
+			while (line <= 157) { // last line
+				int16_t color_input;
+				if (line >= 152) {
+					color_input = 0;
+				} else {
+					color_input = map(line, 60, 153, 255, 0);
+				}
+				// drawFastHLine(x, y, w, color)
+				tft.drawFastHLine(108 + 2, line, 18, gradientRYG(color_input));
+				line++;
+			}
+		} else { // draw a red X
+			// drawLine(x0, y0, x1, y1, color)
+			tft.drawLine(108 + 14, 50 + 30, 108 + 6, 50 + 80, TFT_RED);
+			tft.drawLine(108 + 13, 50 + 30, 108 + 5, 50 + 80, TFT_RED);
+			tft.drawLine(108 + 12, 50 + 30, 108 + 4, 50 + 80, TFT_RED);
+		}
+	}
 }
 
 // Enter Settings Mode. Exit only over reset.
 void settingsMenu() {
   drawSettings();
   drawSettingValues(0);
-  int8_t currentSetting = 0; // 0=save // 1=deadband // 2=amp_fwd_max // 3=amp_break_max // 4=amp_fwd_min // 5=amp_break_min // 6=cellcount
+  int8_t currentSetting = 0; // 0=save // 1=deadband // 2=amp_fwd_max // 3=amp_break_max // 4=amp_fwd_min // 5=amp_break_min // 6=maxvolt
   bool ok;
   bool triggerStick;
   uint16_t stick;
@@ -449,7 +444,7 @@ void changeSettings(bool up, uint16_t currentS) {
     up ? amp_break_min++ : amp_break_min--;
     break;
   case 6:
-    up ? cellcount++ : cellcount--;
+    up ? maxvolt++ : maxvolt--;
     break;
   }
 }
@@ -463,43 +458,45 @@ void drawSettings() {
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.drawString("Deadband", 5, 35, 2);
   tft.drawString("FWD max", 5, 55, 2);
-  // tft.drawRightString("A", 120, 55, 2);
+  tft.drawRightString("A", 120, 55, 2);
   tft.drawString("Break max", 5, 75, 2);
-  //  tft.drawRightString("A", 120, 75, 2);
+  tft.drawRightString("A", 120, 75, 2);
   tft.drawString("FWD min", 5, 95, 2);
-  //  tft.drawRightString("A", 120, 95, 2);
+  tft.drawRightString("A", 120, 95, 2);
   tft.drawString("Break min", 5, 115, 2);
-  //  tft.drawRightString("A", 120, 115, 2);
-  tft.drawString("LiPo Cells", 5, 135, 2);
+  tft.drawRightString("A", 120, 115, 2);
+  tft.drawString("Max Volt", 5, 135, 2);
 }
 
 // Write Values, green when saved, red when new, current marked with white background
 void drawSettingValues(uint16_t currentS) {
   uint8_t eeBuffer;
-  tft.setTextPadding(24); // 23px for max 255
+  tft.setTextPadding(24); // for 255
   EEPROM.get(eeDeadband, eeBuffer);
-  tft.setTextColor(RemoteData._deadband == eeBuffer ? TFT_GREEN : TFT_RED, currentS == 1 ? TFT_WHITE : TFT_BLACK);
+  tft.setTextColor(RemoteData._deadband == eeBuffer ? TFT_GREEN : TFT_RED, currentS == 1 ? TFT_LIGHTGREY : TFT_BLACK);
   tft.drawNumber(RemoteData._deadband, 85, 35, 2);
-
+	
+	tft.setTextPadding(38); // for 127,5
   EEPROM.get(eeFwdMax, eeBuffer);
-  tft.setTextColor(amp_fwd_max == eeBuffer ? TFT_GREEN : TFT_RED, currentS == 2 ? TFT_WHITE : TFT_BLACK);
-  tft.drawNumber(amp_fwd_max, 85, 55, 2);
+  tft.setTextColor(amp_fwd_max == eeBuffer ? TFT_GREEN : TFT_RED, currentS == 2 ? TFT_LIGHTGREY : TFT_BLACK);
+  tft.drawFloat(amp_fwd_max / 2.0, 1, 85, 55, 2);
+	
+	EEPROM.get(eeFwdMin, eeBuffer);
+  tft.setTextColor(amp_fwd_min == eeBuffer ? TFT_GREEN : TFT_RED, currentS == 4 ? TFT_LIGHTGREY : TFT_BLACK);
+  tft.drawFloat(amp_fwd_min / 2.0, 1, 85, 95, 2);
 
+	tft.setTextPadding(30); // for 25,5
   EEPROM.get(eeBreakMax, eeBuffer);
-  tft.setTextColor(amp_break_max == eeBuffer ? TFT_GREEN : TFT_RED, currentS == 3 ? TFT_WHITE : TFT_BLACK);
-  tft.drawNumber(amp_break_max, 85, 75, 2);
-
-  EEPROM.get(eeFwdMin, eeBuffer);
-  tft.setTextColor(amp_fwd_min == eeBuffer ? TFT_GREEN : TFT_RED, currentS == 4 ? TFT_WHITE : TFT_BLACK);
-  tft.drawNumber(amp_fwd_min, 85, 95, 2);
+  tft.setTextColor(amp_break_max == eeBuffer ? TFT_GREEN : TFT_RED, currentS == 3 ? TFT_LIGHTGREY : TFT_BLACK);
+  tft.drawFloat(amp_break_max / 10.0, 1, 85, 75, 2);
 
   EEPROM.get(eeBreakMin, eeBuffer);
-  tft.setTextColor(amp_break_min == eeBuffer ? TFT_GREEN : TFT_RED, currentS == 5 ? TFT_WHITE : TFT_BLACK);
-  tft.drawNumber(amp_break_min, 85, 115, 2);
-
-  EEPROM.get(eeCellcount, eeBuffer);
-  tft.setTextColor(cellcount == eeBuffer ? TFT_GREEN : TFT_RED, currentS == 6 ? TFT_WHITE : TFT_BLACK);
-  tft.drawNumber(cellcount, 85, 135, 2);
+  tft.setTextColor(amp_break_min == eeBuffer ? TFT_GREEN : TFT_RED, currentS == 5 ? TFT_LIGHTGREY : TFT_BLACK);
+  tft.drawFloat(amp_break_min / 10.0, 1, 85, 115, 2);
+	
+	EEPROM.get(eeMaxVolt, eeBuffer);
+  tft.setTextColor(maxvolt == eeBuffer ? TFT_GREEN : TFT_RED, currentS == 6 ? TFT_LIGHTGREY : TFT_BLACK);
+  tft.drawNumber(maxvolt / 5.0, 85, 135, 2);
 }
 
 void saveSettings() {
@@ -508,7 +505,7 @@ void saveSettings() {
   EEPROM.update(eeBreakMax, amp_break_max);
   EEPROM.update(eeFwdMin, amp_fwd_min);
   EEPROM.update(eeBreakMin, amp_break_min);
-  EEPROM.update(eeCellcount, cellcount);
+  EEPROM.update(eeMaxVolt, maxvolt);
 }
 
 void discardSettings() {
@@ -517,5 +514,5 @@ void discardSettings() {
   EEPROM.get(eeBreakMax, amp_break_max);
   EEPROM.get(eeFwdMin, amp_fwd_min);
   EEPROM.get(eeBreakMin, amp_break_min);
-  EEPROM.get(eeCellcount, cellcount);
+  EEPROM.get(eeMaxVolt, maxvolt);
 }
