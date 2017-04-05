@@ -2081,6 +2081,22 @@ int TFT_ST7735::drawRightNumber(long long_num, int dX, int poY, int font)
 }
 
 /***************************************************************************************
+** Function name:           drawCentreNumber
+** Description:             draw a long integer centred on dX
+***************************************************************************************/
+int TFT_ST7735::drawCentreNumber(long long_num, int dX, int poY, int font)
+{
+  byte tempdatum = textdatum;
+  int sumX = 0;
+  textdatum = TC_DATUM;
+  char str[12];
+  ltoa(long_num, str, 10);
+  sumX = drawString(str, dX, poY, font);
+  textdatum = tempdatum;
+  return sumX;
+}
+
+/***************************************************************************************
 ** Function name:           drawFloat
 ** Descriptions:            drawFloat, prints 7 non zero digits maximum
 ***************************************************************************************/
