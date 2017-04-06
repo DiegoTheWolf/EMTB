@@ -38,8 +38,8 @@
 /* PIN Definitions -> ProMini
   DTR|TX0|RXI|VCC|GND|GND --> FTDI programmer
 
-                                                                                TX		RAW
-                                                                                RX		GND --> Step-Down GND
+										TX		RAW
+										RX		GND --> Step-Down GND
                     RST		RST
                     GND		VCC --> Step-Down +3.3V
                         A5
@@ -53,8 +53,6 @@ Button Settings <-- 3			A2 --> Poti(FWD)
       Reset TFT <-- 8			11 --> nRF24L01 MOSI | SDcard MOSI | TFT SDA
          A0 TFT <--	9			10 --> TFT LED
 */
-
-// Idea: Second/Third Poti for max AMPS
 
 #define PIN_BTN_CRUISE 2
 #define PIN_BTN_SETTINGS 3
