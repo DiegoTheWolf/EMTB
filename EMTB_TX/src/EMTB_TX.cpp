@@ -38,8 +38,8 @@
 /* PIN Definitions -> ProMini
   DTR|TX0|RXI|VCC|GND|GND --> FTDI programmer
 
-										TX		RAW
-										RX		GND --> Step-Down GND
+                                                                                TX		RAW
+                                                                                RX		GND --> Step-Down GND
                     RST		RST
                     GND		VCC --> Step-Down +3.3V
                         A5
