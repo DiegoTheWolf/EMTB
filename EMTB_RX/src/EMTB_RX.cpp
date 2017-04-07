@@ -13,8 +13,8 @@
 /* PIN Definitions -> ProMini
   DTR|TX0|RXI|VCC|GND|GND --> FTDI programmer
 
-                                                                                TX		RAW
-                                                                                RX		GND --> Step-Down GND
+           VESC RX  TX		RAW
+           VESC TX  RX		GND --> Step-Down GND
                     RST		RST
                     GND		VCC --> Step-Down +3.3V
                         A5
@@ -34,7 +34,7 @@
 
 const uint8_t channel = 77;
 const uint64_t pipe = 0x52582d5458; // 'RX-TX' pipe
-const uint8_t timeout = 100;        // [ms]
+const uint16_t timeout = 1000;      // [ms]
 const uint8_t deadband = 255;       // no throttle can be given, only when overwritten bei the Remote data
 const uint8_t amp_fwd = 0;          // Turn off output
 const uint8_t amp_break = 0;        // Turn off output
@@ -66,7 +66,7 @@ const struct LEDdata {
 } LED_const;
 
 // Set up nRF24L01 radio on SPI bus plus pins 7 & 8 (CE & CS)
-RF24 radio(7, 8);
+RF24 radio(4, 5);
 
 // Define the array of leds
 CRGB led_fwd[ledCount];
@@ -83,6 +83,9 @@ void setup() {
 
   // Setup UART port
   Serial.begin(115200);
+  while (!Serial)
+    ;
+  delay(1000);
 
   // Setup and configure rf radio
   radio.begin();
@@ -92,15 +95,16 @@ void setup() {
   radio.setDataRate(RF24_2MBPS); // RF24_250KBPS for 250kbs, RF24_1MBPS for 1Mbps, or RF24_2MBPS for 2Mbps
   radio.enableDynamicPayloads(); // enabled for 'enableAckPayload()
   radio.enableAckPayload();
-
+  radio.setAutoAck(1);
   radio.setRetries(1, 15);         // delay (n-1)x250µs // # retries max 15
   radio.setCRCLength(RF24_CRC_16); // Use 16-bit CRC for safety
 
   radio.openReadingPipe(1, pipe);
 
   radio.startListening(); // Start listening
-  radio.printDetails();   // Dump the configuration for debugging
   radio.powerUp();        // Leave low-power mode - making radio more responsive. // powerDown() for low-power
+
+  radio.startListening();
 
   fill_solid(led_fwd, ledCount, CRGB(230, 230, 255)); // white (blueish) front
   fill_solid(led_back, ledCount, CRGB(150, 0, 0));    // red rear
@@ -112,10 +116,11 @@ void loop() {
 
   // Get values from VESC
   // Fill FIFO with AckPayload, for next return
-  if (VescUartGetValue(VescMeasuredValues) && radio.available()) {
-    radio.writeAckPayload(pipe, &VescMeasuredValues, sizeof(VescMeasuredValues));
-  }
-
+  // if (VescUartGetValue(VescMeasuredValues) && radio.available()) {
+  // if (VescUartGetValue(VescMeasuredValues)) {
+  //   radio.writeAckPayload(pipe, &VescMeasuredValues, sizeof(VescMeasuredValues));
+  // }
+  radio.writeAckPayload(pipe, &VescMeasuredValues, sizeof(VescMeasuredValues));
   // Read Data from TX
   while (radio.available()) { // Read everything
     radio.read(&RemoteData, sizeof(RemoteData));
@@ -130,7 +135,8 @@ void loop() {
     }
   }
 
-  if (startSendingToVESC) {
+  // if (startSendingToVESC) {
+  if (0) {
     // Set Duty once if over 5%, else reset duty and apply current
     if (RemoteData.cruise) {
       if (lastDuty == 0 && VescMeasuredValues.duty_now > 5) {

@@ -111,7 +111,7 @@ uint8_t lastBatLine;
 // average
 uint16_t avgSum = 0;
 const uint8_t avgCnt = 10;
-uint8_t avg[avgCnt];
+uint16_t avg[avgCnt];
 uint8_t avgIdx = 0;
 
 File logfile;
@@ -205,6 +205,7 @@ void setup() {
   radio.setDataRate(RF24_2MBPS); // RF24_250KBPS for 250kbs, RF24_1MBPS for 1Mbps, or RF24_2MBPS for 2Mbps
   radio.enableDynamicPayloads(); // enabled for 'enableAckPayload()
   radio.enableAckPayload();
+  radio.setAutoAck(1);
   radio.setRetries(1, 15);         // delay (n-1)x250µs // #retries max 15
   radio.setCRCLength(RF24_CRC_16); // Use 16-bit CRC for safety
 
@@ -213,6 +214,7 @@ void setup() {
   radio.powerUp(); // Leave low-power mode - making radio more responsive. // powerDown() for low-power
 
   tft.fillScreen(TFT_BLACK);
+  tft.drawPixel(1, 1, TFT_RED); // Statuspixel
   drawBattery(TFT_WHITE);
   drawLabels();
 }
@@ -221,12 +223,11 @@ void loop() {
   // read POTI_THR and build average (we don't want a spiking throttle)
   avgSum -= avg[avgIdx];
   avg[avgIdx] = analogRead(PIN_POTI_THR);
-  ;
   avgSum += avg[avgIdx];
   avgIdx++;
   if (avgIdx == avgCnt)
     avgIdx = 0;
-  RemoteData.thr = avgSum / avgCnt;
+  RemoteData.thr = map(avgSum / avgCnt, 0, 1023, -127, 127);
 
   RemoteData._amp_fwd = map(analogRead(PIN_POTI_FWD), 0, 1023, amp_fwd_min, amp_fwd_max);
   RemoteData._amp_break = map(analogRead(PIN_POTI_BREAK), 0, 1023, amp_break_min, amp_break_max);
@@ -238,10 +239,12 @@ void loop() {
   if (SendEnabled) {
     // send values to RX
     radio.write(&RemoteData, sizeof(RemoteData));
-
-    // recieve AckPayload
-    while (radio.isAckPayloadAvailable()) {
+    tft.drawPixel(1, 1, TFT_BLUE); // Statuspixel
+                                   // recieve AckPayload
+                                   // while (radio.isAckPayloadAvailable()) {
+    while (radio.available()) {
       radio.read(&VescMeasuredValues, sizeof(VescMeasuredValues));
+      tft.drawPixel(3, 1, TFT_GREEN); // Statuspixel
     }
   } else {
     if (millis() > waitBeforeSend)
